@@ -58,9 +58,9 @@
 #include "utils/resowner.h"
 #include "utils/timestamp.h"
 
-/*
- * GUC parameters
- */
+ /*
+  * GUC parameters
+  */
 int			BgWriterDelay = 200;
 
 /*
@@ -69,17 +69,17 @@ int			BgWriterDelay = 200;
  */
 #define HIBERNATE_FACTOR			50
 
-/*
- * Interval in which standby snapshots are logged into the WAL stream, in
- * milliseconds.
- */
+ /*
+  * Interval in which standby snapshots are logged into the WAL stream, in
+  * milliseconds.
+  */
 #define LOG_SNAPSHOT_INTERVAL_MS 15000
 
-/*
- * LSN and timestamp at which we last issued a LogStandbySnapshot(), to avoid
- * doing so too often or repeatedly if there has been no other write activity
- * in the system.
- */
+  /*
+   * LSN and timestamp at which we last issued a LogStandbySnapshot(), to avoid
+   * doing so too often or repeatedly if there has been no other write activity
+   * in the system.
+   */
 static TimestampTz last_snapshot_ts;
 static XLogRecPtr last_snapshot_lsn = InvalidXLogRecPtr;
 
@@ -131,8 +131,8 @@ BackgroundWriterMain(void)
 	 * TopMemoryContext, but resetting that would be a really bad idea.
 	 */
 	bgwriter_context = AllocSetContextCreate(TopMemoryContext,
-											 "Background Writer",
-											 ALLOCSET_DEFAULT_SIZES);
+		"Background Writer",
+		ALLOCSET_DEFAULT_SIZES);
 	MemoryContextSwitchTo(bgwriter_context);
 
 	WritebackContextInit(&wb_context, &bgwriter_flush_after);
@@ -274,7 +274,7 @@ BackgroundWriterMain(void)
 			TimestampTz now = GetCurrentTimestamp();
 
 			timeout = TimestampTzPlusMilliseconds(last_snapshot_ts,
-												  LOG_SNAPSHOT_INTERVAL_MS);
+				LOG_SNAPSHOT_INTERVAL_MS);
 
 			/*
 			 * Only log if enough time has passed and interesting records have
@@ -302,8 +302,8 @@ BackgroundWriterMain(void)
 		 * normal operation.
 		 */
 		rc = WaitLatch(MyLatch,
-					   WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-					   BgWriterDelay /* ms */ , WAIT_EVENT_BGWRITER_MAIN);
+			WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+			BgWriterDelay /* ms */, WAIT_EVENT_BGWRITER_MAIN);
 
 		/*
 		 * If no latch event and BgBufferSync says nothing's happening, extend
@@ -328,10 +328,10 @@ BackgroundWriterMain(void)
 			/* Ask for notification at next buffer allocation */
 			StrategyNotifyBgWriter(MyProc->pgprocno);
 			/* Sleep ... */
-			(void) WaitLatch(MyLatch,
-							 WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-							 BgWriterDelay * HIBERNATE_FACTOR,
-							 WAIT_EVENT_BGWRITER_HIBERNATE);
+			(void)WaitLatch(MyLatch,
+				WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+				BgWriterDelay * HIBERNATE_FACTOR,
+				WAIT_EVENT_BGWRITER_HIBERNATE);
 			/* Reset the notification request in case we timed out */
 			StrategyNotifyBgWriter(-1);
 		}
