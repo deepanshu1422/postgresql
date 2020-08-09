@@ -273,9 +273,9 @@ typedef struct
 } CHKVAL;
 
 /*
- * TS_execute callback for matching a tsquery operand to GIST leaf-page data
+ * is there value 'val' in array or not ?
  */
-static TSTernaryValue
+static bool
 checkcondition_arr(void *checkval, QueryOperand *val, ExecPhraseData *data)
 {
 	int32	   *StopLow = ((CHKVAL *) checkval)->arrb;
@@ -288,26 +288,23 @@ checkcondition_arr(void *checkval, QueryOperand *val, ExecPhraseData *data)
 	 * we are not able to find a prefix by hash value
 	 */
 	if (val->prefix)
-		return TS_MAYBE;
+		return true;
 
 	while (StopLow < StopHigh)
 	{
 		StopMiddle = StopLow + (StopHigh - StopLow) / 2;
 		if (*StopMiddle == val->valcrc)
-			return TS_MAYBE;
+			return true;
 		else if (*StopMiddle < val->valcrc)
 			StopLow = StopMiddle + 1;
 		else
 			StopHigh = StopMiddle;
 	}
 
-	return TS_NO;
+	return false;
 }
 
-/*
- * TS_execute callback for matching a tsquery operand to GIST non-leaf data
- */
-static TSTernaryValue
+static bool
 checkcondition_bit(void *checkval, QueryOperand *val, ExecPhraseData *data)
 {
 	void	   *key = (SignTSVector *) checkval;
@@ -316,12 +313,8 @@ checkcondition_bit(void *checkval, QueryOperand *val, ExecPhraseData *data)
 	 * we are not able to find a prefix in signature tree
 	 */
 	if (val->prefix)
-		return TS_MAYBE;
-
-	if (GETBIT(GETSIGN(key), HASHVAL(val->valcrc, GETSIGLEN(key))))
-		return TS_MAYBE;
-	else
-		return TS_NO;
+		return true;
+	return GETBIT(GETSIGN(key), HASHVAL(val->valcrc, GETSIGLEN(key)));
 }
 
 Datum
@@ -346,6 +339,7 @@ gtsvector_consistent(PG_FUNCTION_ARGS)
 		if (ISALLTRUE(key))
 			PG_RETURN_BOOL(true);
 
+		/* since signature is lossy, cannot specify CALC_NOT here */
 		PG_RETURN_BOOL(TS_execute(GETQUERY(query),
 								  key,
 								  TS_EXEC_PHRASE_NO_POS,
@@ -359,7 +353,7 @@ gtsvector_consistent(PG_FUNCTION_ARGS)
 		chkval.arre = chkval.arrb + ARRNELEM(key);
 		PG_RETURN_BOOL(TS_execute(GETQUERY(query),
 								  (void *) &chkval,
-								  TS_EXEC_PHRASE_NO_POS,
+								  TS_EXEC_PHRASE_NO_POS | TS_EXEC_CALC_NOT,
 								  checkcondition_arr));
 	}
 }

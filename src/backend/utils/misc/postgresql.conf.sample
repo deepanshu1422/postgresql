@@ -122,15 +122,12 @@
 					# (change requires restart)
 #huge_pages = try			# on, off, or try
 					# (change requires restart)
-#huge_page_size = 0			# zero for system default
-					# (change requires restart)
 #temp_buffers = 8MB			# min 800kB
 #max_prepared_transactions = 0		# zero disables the feature
 					# (change requires restart)
 # Caution: it is not advisable to set max_prepared_transactions nonzero unless
 # you actively intend to use prepared transactions.
 #work_mem = 4MB				# min 64kB
-#hash_mem_multiplier = 1.0		# 1-1000.0 multiplier on hash table work_mem
 #maintenance_work_mem = 64MB		# min 1MB
 #autovacuum_work_mem = -1		# min 1MB, or -1 to use maintenance_work_mem
 #logical_decoding_work_mem = 64MB	# min 64kB
@@ -287,11 +284,11 @@
 
 # - Sending Servers -
 
-# Set these on the primary and on any standby that will send replication data.
+# Set these on the master and on any standby that will send replication data.
 
 #max_wal_senders = 10		# max number of walsender processes
 				# (change requires restart)
-#wal_keep_size = 0		# in megabytes; 0 disables
+#wal_keep_segments = 0		# in logfile segments; 0 disables
 #max_slot_wal_keep_size = -1	# in megabytes; -1 disables
 #wal_sender_timeout = 60s	# in milliseconds; 0 disables
 
@@ -300,7 +297,7 @@
 #track_commit_timestamp = off	# collect timestamp of transaction commit
 				# (change requires restart)
 
-# - Primary Server -
+# - Master Server -
 
 # These settings are ignored on a standby server.
 
@@ -312,7 +309,7 @@
 
 # - Standby Servers -
 
-# These settings are ignored on a primary server.
+# These settings are ignored on a master server.
 
 #primary_conninfo = ''			# connection string to sending server
 #primary_slot_name = ''			# replication slot on sending server
@@ -332,7 +329,7 @@
 #hot_standby_feedback = off		# send info from standby to prevent
 					# query conflicts
 #wal_receiver_timeout = 60s		# time that receiver waits for
-					# communication from primary
+					# communication from master
 					# in milliseconds; 0 disables
 #wal_retrieve_retry_interval = 5s	# time to wait before retrying to
 					# retrieve WAL after a failed attempt
@@ -364,7 +361,7 @@
 #enable_parallel_append = on
 #enable_seqscan = on
 #enable_sort = on
-#enable_incremental_sort = on
+#enable_incrementalsort = on
 #enable_tidscan = on
 #enable_partitionwise_join = off
 #enable_partitionwise_aggregate = off

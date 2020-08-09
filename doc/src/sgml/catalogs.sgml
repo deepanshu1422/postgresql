@@ -1895,8 +1895,7 @@ SCRAM-SHA-256$<replaceable>&lt;iteration count&gt;</replaceable>:<replaceable>&l
       </para>
       <para>
        The OID of the data type that corresponds to this table's row type,
-       if any (zero for indexes, sequences, and toast tables, which have
-       no <structname>pg_type</structname> entry)
+       if any (zero for indexes, which have no <structname>pg_type</structname> entry)
       </para></entry>
      </row>
 
@@ -4417,9 +4416,9 @@ SCRAM-SHA-256$<replaceable>&lt;iteration count&gt;</replaceable>:<replaceable>&l
 
   <para>
    The catalog <structname>pg_inherits</structname> records information about
-   table and index inheritance hierarchies.  There is one entry for each direct
-   parent-child table or index relationship in the database.  (Indirect
-   inheritance can be determined by following chains of entries.)
+   table inheritance hierarchies.  There is one entry for each direct
+   parent-child table relationship in the database.  (Indirect inheritance can be determined
+   by following chains of entries.)
   </para>
 
   <table>
@@ -4443,7 +4442,7 @@ SCRAM-SHA-256$<replaceable>&lt;iteration count&gt;</replaceable>:<replaceable>&l
        (references <link linkend="catalog-pg-class"><structname>pg_class</structname></link>.<structfield>oid</structfield>)
       </para>
       <para>
-       The OID of the child table or index
+       The OID of the child table
       </para></entry>
      </row>
 
@@ -4453,7 +4452,7 @@ SCRAM-SHA-256$<replaceable>&lt;iteration count&gt;</replaceable>:<replaceable>&l
        (references <link linkend="catalog-pg-class"><structname>pg_class</structname></link>.<structfield>oid</structfield>)
       </para>
       <para>
-       The OID of the parent table or index
+       The OID of the parent table
       </para></entry>
      </row>
 
@@ -4465,10 +4464,6 @@ SCRAM-SHA-256$<replaceable>&lt;iteration count&gt;</replaceable>:<replaceable>&l
        If there is more than one direct parent for a child table (multiple
        inheritance), this number tells the order in which the
        inherited columns are to be arranged.  The count starts at 1.
-      </para>
-      <para>
-       Indexes can not have multiple inheritance, since they can only inherit
-       when using declarative partitioning.
       </para></entry>
      </row>
     </tbody>
@@ -7476,7 +7471,7 @@ SCRAM-SHA-256$<replaceable>&lt;iteration count&gt;</replaceable>:<replaceable>&l
        (references <link linkend="catalog-pg-database"><structname>pg_database</structname></link>.<structfield>oid</structfield>)
       </para>
       <para>
-       OID of the database that the subscription resides in
+       OID of the database which the subscription resides in
       </para></entry>
      </row>
 
@@ -7504,17 +7499,7 @@ SCRAM-SHA-256$<replaceable>&lt;iteration count&gt;</replaceable>:<replaceable>&l
        <structfield>subenabled</structfield> <type>bool</type>
       </para>
       <para>
-       If true, the subscription is enabled and should be replicating
-      </para></entry>
-     </row>
-
-    <row>
-      <entry role="catalog_table_entry"><para role="column_definition">
-       <structfield>subbinary</structfield> <type>bool</type>
-      </para>
-      <para>
-       If true, the subscription will request that the publisher send data
-       in binary format
+       If true, the subscription is enabled and should be replicating.
       </para></entry>
      </row>
 
@@ -7532,9 +7517,8 @@ SCRAM-SHA-256$<replaceable>&lt;iteration count&gt;</replaceable>:<replaceable>&l
        <structfield>subslotname</structfield> <type>name</type>
       </para>
       <para>
-       Name of the replication slot in the upstream database (also used
-       for the local replication origin name);
-       null represents <literal>NONE</literal>
+       Name of the replication slot in the upstream database. Also used
+       for local replication origin name.
       </para></entry>
      </row>
 
@@ -7543,8 +7527,8 @@ SCRAM-SHA-256$<replaceable>&lt;iteration count&gt;</replaceable>:<replaceable>&l
        <structfield>subsynccommit</structfield> <type>text</type>
       </para>
       <para>
-       The <varname>synchronous_commit</varname>
-       setting for the subscription's workers to use
+       Contains the value of the <varname>synchronous_commit</varname>
+       setting for the subscription workers.
       </para></entry>
      </row>
 
@@ -7553,8 +7537,8 @@ SCRAM-SHA-256$<replaceable>&lt;iteration count&gt;</replaceable>:<replaceable>&l
        <structfield>subpublications</structfield> <type>text[]</type>
       </para>
       <para>
-       Array of subscribed publication names. These reference
-       publications defined in the upstream database. For more on publications
+       Array of subscribed publication names. These reference the
+       publications on the publisher server. For more on publications
        see <xref linkend="logical-replication-publication"/>.
       </para></entry>
      </row>
@@ -7635,9 +7619,7 @@ SCRAM-SHA-256$<replaceable>&lt;iteration count&gt;</replaceable>:<replaceable>&l
        <structfield>srsublsn</structfield> <type>pg_lsn</type>
       </para>
       <para>
-       Remote LSN of the state change used for synchronization coordination
-       when in <literal>s</literal> or <literal>r</literal> states,
-       otherwise null
+       End LSN for <literal>s</literal> and <literal>r</literal> states.
       </para></entry>
      </row>
     </tbody>
@@ -10847,24 +10829,6 @@ SELECT * FROM pg_locks pl LEFT JOIN pg_prepared_xacts ppx
        frontend/backend protocol
       </para></entry>
      </row>
-
-     <row>
-      <entry role="catalog_table_entry"><para role="column_definition">
-       <structfield>generic_plans</structfield> <type>int8</type>
-      </para>
-      <para>
-       Number of times generic plan was chosen
-      </para></entry>
-     </row>
-
-     <row>
-      <entry role="catalog_table_entry"><para role="column_definition">
-       <structfield>custom_plans</structfield> <type>int8</type>
-      </para>
-      <para>
-       Number of times custom plan was chosen
-      </para></entry>
-     </row>
     </tbody>
    </tgroup>
   </table>
@@ -11250,9 +11214,7 @@ SELECT * FROM pg_locks pl LEFT JOIN pg_prepared_xacts ppx
       <para>
        The address (<literal>LSN</literal>) of oldest WAL which still
        might be required by the consumer of this slot and thus won't be
-       automatically removed during checkpoints unless this LSN
-       gets behind more than <xref linkend="guc-max-slot-wal-keep-size"/>
-       from the current LSN.  <literal>NULL</literal>
+       automatically removed during checkpoints.  <literal>NULL</literal>
        if the <literal>LSN</literal> of this slot has never been reserved.
       </para></entry>
      </row>
@@ -11284,7 +11246,7 @@ SELECT * FROM pg_locks pl LEFT JOIN pg_prepared_xacts ppx
          <para><literal>extended</literal> means
           that <varname>max_wal_size</varname> is exceeded but the files are
           still retained, either by the replication slot or
-          by <varname>wal_keep_size</varname>.
+          by <varname>wal_keep_segments</varname>.
          </para>
         </listitem>
         <listitem>
@@ -11311,13 +11273,10 @@ SELECT * FROM pg_locks pl LEFT JOIN pg_prepared_xacts ppx
 
      <row>
       <entry role="catalog_table_entry"><para role="column_definition">
-       <structfield>safe_wal_size</structfield> <type>int8</type>
+       <structfield>min_safe_lsn</structfield> <type>pg_lsn</type>
       </para>
       <para>
-       The number of bytes that can be written to WAL such that this slot
-       is not in danger of getting in state "lost".  It is NULL for lost
-       slots, as well as if <varname>max_slot_wal_keep_size</varname>
-       is <literal>-1</literal>.
+       The minimum LSN currently available for walsenders.
       </para></entry>
      </row>
     </tbody>

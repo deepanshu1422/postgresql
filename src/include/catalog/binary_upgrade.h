@@ -16,6 +16,7 @@
 
 extern PGDLLIMPORT Oid binary_upgrade_next_pg_type_oid;
 extern PGDLLIMPORT Oid binary_upgrade_next_array_pg_type_oid;
+extern PGDLLIMPORT Oid binary_upgrade_next_toast_pg_type_oid;
 
 extern PGDLLIMPORT Oid binary_upgrade_next_heap_pg_class_oid;
 extern PGDLLIMPORT Oid binary_upgrade_next_index_pg_class_oid;

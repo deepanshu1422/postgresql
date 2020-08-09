@@ -3554,6 +3554,11 @@ set_rtable_names(deparse_namespace *dpns, List *parent_namespaces,
 					hentry->counter++;
 					for (;;)
 					{
+						/*
+						 * We avoid using %.*s here because it can misbehave
+						 * if the data is not valid in what libc thinks is the
+						 * prevailing encoding.
+						 */
 						memcpy(modname, refname, refnamelen);
 						sprintf(modname + refnamelen, "_%d", hentry->counter);
 						if (strlen(modname) < NAMEDATALEN)
@@ -4433,6 +4438,11 @@ make_colname_unique(char *colname, deparse_namespace *dpns,
 			i++;
 			for (;;)
 			{
+				/*
+				 * We avoid using %.*s here because it can misbehave if the
+				 * data is not valid in what libc thinks is the prevailing
+				 * encoding.
+				 */
 				memcpy(modname, colname, colnamelen);
 				sprintf(modname + colnamelen, "_%d", i);
 				if (strlen(modname) < NAMEDATALEN)

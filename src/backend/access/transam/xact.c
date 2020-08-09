@@ -34,6 +34,7 @@
 #include "catalog/namespace.h"
 #include "catalog/pg_enum.h"
 #include "catalog/storage.h"
+#include "storage/aio.h"
 #include "commands/async.h"
 #include "commands/tablecmds.h"
 #include "commands/trigger.h"
@@ -191,7 +192,6 @@ typedef struct TransactionStateData
 	bool		didLogXid;		/* has xid been included in WAL record? */
 	int			parallelModeLevel;	/* Enter/ExitParallelMode counter */
 	bool		chain;			/* start a new block after this one */
-	bool		assigned;		/* assigned to top-level XID */
 	struct TransactionStateData *parent;	/* back link to parent */
 } TransactionStateData;
 
@@ -224,7 +224,6 @@ typedef struct SerializedTransactionState
 static TransactionStateData TopTransactionStateData = {
 	.state = TRANS_DEFAULT,
 	.blockState = TBLOCK_DEFAULT,
-	.assigned = false,
 };
 
 /*
@@ -752,7 +751,7 @@ GetCurrentCommandId(bool used)
 	{
 		/*
 		 * Forbid setting currentCommandIdUsed in a parallel worker, because
-		 * we have no provision for communicating this back to the leader.  We
+		 * we have no provision for communicating this back to the master.  We
 		 * could relax this restriction when currentCommandIdUsed was already
 		 * true at the start of the parallel operation.
 		 */
@@ -989,7 +988,7 @@ ExitParallelMode(void)
 /*
  *	IsInParallelMode
  *
- * Are we in a parallel operation, as either the leader or a worker?  Check
+ * Are we in a parallel operation, as either the master or a worker?  Check
  * this to prohibit operations that change backend-local state expected to
  * match across all workers.  Mere caches usually don't require such a
  * restriction.  State modified in a strict push/pop fashion, such as the
@@ -1223,16 +1222,6 @@ RecordTransactionCommit(void)
 	SharedInvalidationMessage *invalMessages = NULL;
 	bool		RelcacheInitFileInval = false;
 	bool		wrote_xlog;
-
-	/*
-	 * Log pending invalidations for logical decoding of in-progress
-	 * transactions.  Normally for DDLs, we log this at each command end,
-	 * however, for certain cases where we directly update the system table
-	 * without a transaction block, the invalidations are not logged till this
-	 * time.
-	 */
-	if (XLogLogicalInfoActive())
-		LogLogicalInvalidations();
 
 	/* Get data needed for commit record */
 	nrels = smgrGetPendingDeletes(true, &rels);
@@ -2176,13 +2165,13 @@ CommitTransaction(void)
 	else
 	{
 		/*
-		 * We must not mark our XID committed; the parallel leader is
+		 * We must not mark our XID committed; the parallel master is
 		 * responsible for that.
 		 */
 		latestXid = InvalidTransactionId;
 
 		/*
-		 * Make sure the leader will know about any WAL we wrote before it
+		 * Make sure the master will know about any WAL we wrote before it
 		 * commits.
 		 */
 		ParallelWorkerReportLastRecEnd(XactLastRecEnd);
@@ -2196,6 +2185,8 @@ CommitTransaction(void)
 	 * RecordTransactionCommit.
 	 */
 	ProcArrayEndTransaction(MyProc, latestXid);
+
+	pgaio_at_commit();
 
 	/*
 	 * This is all post-commit cleanup.  Note that if an error is raised here,
@@ -2606,6 +2597,8 @@ AbortTransaction(void)
 	AtAbort_Memory();
 	AtAbort_ResourceOwner();
 
+	pgaio_at_abort();
+
 	/*
 	 * Release any LW locks we might be holding as quickly as possible.
 	 * (Regular locks, however, must be held till we finish aborting.)
@@ -2711,7 +2704,7 @@ AbortTransaction(void)
 		latestXid = InvalidTransactionId;
 
 		/*
-		 * Since the parallel leader won't get our value of XactLastRecEnd in
+		 * Since the parallel master won't get our value of XactLastRecEnd in
 		 * this case, we nudge WAL-writer ourselves in this case.  See related
 		 * comments in RecordTransactionAbort for why this matters.
 		 */
@@ -4500,7 +4493,7 @@ RollbackAndReleaseCurrentSubTransaction(void)
 
 	/*
 	 * Unlike ReleaseCurrentSubTransaction(), this is nominally permitted
-	 * during parallel operations.  That's because we may be in the leader,
+	 * during parallel operations.  That's because we may be in the master,
 	 * recovering from an error thrown while we were in parallel mode.  We
 	 * won't reach here in a worker, because BeginInternalSubTransaction()
 	 * will have failed.
@@ -5132,7 +5125,6 @@ PushTransaction(void)
 	GetUserIdAndSecContext(&s->prevUser, &s->prevSecContext);
 	s->prevXactReadOnly = XactReadOnly;
 	s->parallelModeLevel = 0;
-	s->assigned = false;
 
 	CurrentTransactionState = s;
 
@@ -6032,60 +6024,6 @@ xact_redo(XLogReaderState *record)
 			ProcArrayApplyXidAssignment(xlrec->xtop,
 										xlrec->nsubxacts, xlrec->xsub);
 	}
-	else if (info == XLOG_XACT_INVALIDATIONS)
-	{
-		/*
-		 * XXX we do ignore this for now, what matters are invalidations
-		 * written into the commit record.
-		 */
-	}
 	else
 		elog(PANIC, "xact_redo: unknown op code %u", info);
-}
-
-/*
- * IsSubTransactionAssignmentPending
- *
- * This is used to decide whether we need to WAL log the top-level XID for
- * operation in a subtransaction.  We require that for logical decoding, see
- * LogicalDecodingProcessRecord.
- *
- * This returns true if wal_level >= logical and we are inside a valid
- * subtransaction, for which the assignment was not yet written to any WAL
- * record.
- */
-bool
-IsSubTransactionAssignmentPending(void)
-{
-	/* wal_level has to be logical */
-	if (!XLogLogicalInfoActive())
-		return false;
-
-	/* we need to be in a transaction state */
-	if (!IsTransactionState())
-		return false;
-
-	/* it has to be a subtransaction */
-	if (!IsSubTransaction())
-		return false;
-
-	/* the subtransaction has to have a XID assigned */
-	if (!TransactionIdIsValid(GetCurrentTransactionIdIfAny()))
-		return false;
-
-	/* and it should not be already 'assigned' */
-	return !CurrentTransactionState->assigned;
-}
-
-/*
- * MarkSubTransactionAssigned
- *
- * Mark the subtransaction assignment as completed.
- */
-void
-MarkSubTransactionAssigned(void)
-{
-	Assert(IsSubTransactionAssignmentPending());
-
-	CurrentTransactionState->assigned = true;
 }

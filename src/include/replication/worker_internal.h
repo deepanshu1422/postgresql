@@ -18,8 +18,6 @@
 #include "catalog/pg_subscription.h"
 #include "datatype/timestamp.h"
 #include "storage/lock.h"
-#include "storage/spin.h"
-
 
 typedef struct LogicalRepWorker
 {

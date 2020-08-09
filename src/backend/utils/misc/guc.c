@@ -20,14 +20,11 @@
 #include <float.h>
 #include <math.h>
 #include <limits.h>
-#ifndef WIN32
-#include <sys/mman.h>
-#endif
+#include <unistd.h>
 #include <sys/stat.h>
 #ifdef HAVE_SYSLOG
 #include <syslog.h>
 #endif
-#include <unistd.h>
 
 #include "access/commit_ts.h"
 #include "access/gin.h"
@@ -201,7 +198,6 @@ static bool check_max_wal_senders(int *newval, void **extra, GucSource source);
 static bool check_autovacuum_work_mem(int *newval, void **extra, GucSource source);
 static bool check_effective_io_concurrency(int *newval, void **extra, GucSource source);
 static bool check_maintenance_io_concurrency(int *newval, void **extra, GucSource source);
-static bool check_huge_page_size(int *newval, void **extra, GucSource source);
 static void assign_pgstat_temp_directory(const char *newval, void *extra);
 static bool check_application_name(char **newval, void **extra, GucSource source);
 static void assign_application_name(const char *newval, void *extra);
@@ -580,7 +576,6 @@ int			ssl_renegotiation_limit;
  * need to be duplicated in all the different implementations of pg_shmem.c.
  */
 int			huge_pages;
-int			huge_page_size;
 
 /*
  * These variables are all dummies that don't do anything, except in some
@@ -713,8 +708,8 @@ const char *const config_group_names[] =
 	gettext_noop("Replication"),
 	/* REPLICATION_SENDING */
 	gettext_noop("Replication / Sending Servers"),
-	/* REPLICATION_PRIMARY */
-	gettext_noop("Replication / Primary Server"),
+	/* REPLICATION_MASTER */
+	gettext_noop("Replication / Master Server"),
 	/* REPLICATION_STANDBY */
 	gettext_noop("Replication / Standby Servers"),
 	/* REPLICATION_SUBSCRIBERS */
@@ -988,11 +983,11 @@ static struct config_bool ConfigureNamesBool[] =
 		NULL, NULL, NULL
 	},
 	{
-		{"enable_incremental_sort", PGC_USERSET, QUERY_TUNING_METHOD,
+		{"enable_incrementalsort", PGC_USERSET, QUERY_TUNING_METHOD,
 			gettext_noop("Enables the planner's use of incremental sort steps."),
 			NULL
 		},
-		&enable_incremental_sort,
+		&enable_incrementalsort,
 		true,
 		NULL, NULL, NULL
 	},
@@ -1004,6 +999,16 @@ static struct config_bool ConfigureNamesBool[] =
 		},
 		&enable_hashagg,
 		true,
+		NULL, NULL, NULL
+	},
+	{
+		{"hashagg_avoid_disk_plan", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("Causes the planner to avoid hashed aggregation plans that are expected to use the disk."),
+			NULL,
+			GUC_EXPLAIN
+		},
+		&hashagg_avoid_disk_plan,
+		false,
 		NULL, NULL, NULL
 	},
 	{
@@ -2036,6 +2041,42 @@ static struct config_bool ConfigureNamesBool[] =
 		NULL, NULL, NULL
 	},
 
+	{
+		{"io_data_direct", PGC_SUSET, RESOURCES_DISK,
+			gettext_noop("data file IO uses direct IO."),
+		},
+		&io_data_direct,
+		false,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"io_data_force_async", PGC_SUSET, RESOURCES_DISK,
+			gettext_noop("force synchronous data file to use async IO."),
+		},
+		&io_data_force_async,
+		true, // helpful for development
+		NULL, NULL, NULL
+	},
+
+	{
+		{"io_wal_direct", PGC_SIGHUP, RESOURCES_DISK,
+			gettext_noop("wal file IO uses direct IO."),
+		},
+		&io_wal_direct,
+		false,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"io_wal_init_direct", PGC_SIGHUP, RESOURCES_DISK,
+			gettext_noop("wal file initialization IO uses direct IO."),
+		},
+		&io_wal_init_direct,
+		false,
+		NULL, NULL, NULL
+	},
+
 	/* End-of-list marker */
 	{
 		{NULL, 0, 0, NULL, NULL}, NULL, false, NULL, NULL, NULL
@@ -2544,7 +2585,7 @@ static struct config_int ConfigureNamesInt[] =
 	},
 
 	{
-		{"vacuum_defer_cleanup_age", PGC_SIGHUP, REPLICATION_PRIMARY,
+		{"vacuum_defer_cleanup_age", PGC_SIGHUP, REPLICATION_MASTER,
 			gettext_noop("Number of transactions by which VACUUM and HOT cleanup should be deferred, if any."),
 			NULL
 		},
@@ -2626,13 +2667,12 @@ static struct config_int ConfigureNamesInt[] =
 	},
 
 	{
-		{"wal_keep_size", PGC_SIGHUP, REPLICATION_SENDING,
-			gettext_noop("Sets the size of WAL files held for standby servers."),
-			NULL,
-			GUC_UNIT_MB
+		{"wal_keep_segments", PGC_SIGHUP, REPLICATION_SENDING,
+			gettext_noop("Sets the number of WAL files held for standby servers."),
+			NULL
 		},
-		&wal_keep_size_mb,
-		0, 0, MAX_KILOBYTES,
+		&wal_keep_segments,
+		0, 0, INT_MAX,
 		NULL, NULL, NULL
 	},
 
@@ -2714,6 +2754,17 @@ static struct config_int ConfigureNamesInt[] =
 			GUC_UNIT_MS
 		},
 		&WalWriterDelay,
+		200, 1, 10000,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"wal_writer_sleep", PGC_SIGHUP, WAL_SETTINGS,
+			gettext_noop("How often WAL writer wakes up."),
+			NULL,
+			GUC_UNIT_MS
+		},
+		&WalWriterSleep,
 		200, 1, 10000,
 		NULL, NULL, NULL
 	},
@@ -3377,17 +3428,6 @@ static struct config_int ConfigureNamesInt[] =
 		NULL, assign_tcp_user_timeout, show_tcp_user_timeout
 	},
 
-	{
-		{"huge_page_size", PGC_POSTMASTER, RESOURCES_MEM,
-			gettext_noop("The size of huge page that should be requested."),
-			NULL,
-			GUC_UNIT_KB
-		},
-		&huge_page_size,
-		0, 0, INT_MAX,
-		check_huge_page_size, NULL, NULL
-	},
-
 	/* End-of-list marker */
 	{
 		{NULL, 0, 0, NULL, NULL}, NULL, 0, 0, 0, NULL, NULL, NULL
@@ -3455,7 +3495,7 @@ static struct config_real ConfigureNamesReal[] =
 	{
 		{"parallel_tuple_cost", PGC_USERSET, QUERY_TUNING_COST,
 			gettext_noop("Sets the planner's estimate of the cost of "
-						 "passing each tuple (row) from worker to leader backend."),
+						 "passing each tuple (row) from worker to master backend."),
 			NULL,
 			GUC_EXPLAIN
 		},
@@ -3539,17 +3579,6 @@ static struct config_real ConfigureNamesReal[] =
 		},
 		&Geqo_seed,
 		0.0, 0.0, 1.0,
-		NULL, NULL, NULL
-	},
-
-	{
-		{"hash_mem_multiplier", PGC_USERSET, RESOURCES_MEM,
-			gettext_noop("Multiple of work_mem to use for hash tables."),
-			NULL,
-			GUC_EXPLAIN
-		},
-		&hash_mem_multiplier,
-		1.0, 1.0, 1000.0,
 		NULL, NULL, NULL
 	},
 
@@ -4310,7 +4339,7 @@ static struct config_string ConfigureNamesString[] =
 	},
 
 	{
-		{"synchronous_standby_names", PGC_SIGHUP, REPLICATION_PRIMARY,
+		{"synchronous_standby_names", PGC_SIGHUP, REPLICATION_MASTER,
 			gettext_noop("Number of synchronous standbys and list of names of potential synchronous ones."),
 			NULL,
 			GUC_LIST_INPUT
@@ -11580,20 +11609,6 @@ check_maintenance_io_concurrency(int *newval, void **extra, GucSource source)
 		return false;
 	}
 #endif							/* USE_PREFETCH */
-	return true;
-}
-
-static bool
-check_huge_page_size(int *newval, void **extra, GucSource source)
-{
-#if !(defined(MAP_HUGE_MASK) && defined(MAP_HUGE_SHIFT))
-	/* Recent enough Linux only, for now.  See GetHugePageSize(). */
-	if (*newval != 0)
-	{
-		GUC_check_errdetail("huge_page_size must be 0 on this platform.");
-		return false;
-	}
-#endif
 	return true;
 }
 

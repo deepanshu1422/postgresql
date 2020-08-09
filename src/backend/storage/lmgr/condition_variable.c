@@ -30,6 +30,32 @@
 /* Initially, we are not prepared to sleep on any condition variable. */
 static ConditionVariable *cv_sleep_target = NULL;
 
+/* Reusable WaitEventSet. */
+extern WaitEventSet *cv_wait_event_set;
+WaitEventSet *cv_wait_event_set = NULL;
+
+void
+ConditionVariableStartup(void)
+{
+	/*
+	 * If first time through in this process, create a WaitEventSet, which
+	 * we'll reuse for all condition variable sleeps.
+	 */
+	if (cv_wait_event_set == NULL)
+	{
+		WaitEventSet *new_event_set;
+
+		new_event_set = CreateWaitEventSet(TopMemoryContext, 2);
+		AddWaitEventToSet(new_event_set, WL_LATCH_SET, PGINVALID_SOCKET,
+						  MyLatch, NULL);
+		if (IsUnderPostmaster)
+			AddWaitEventToSet(new_event_set, WL_EXIT_ON_PM_DEATH, PGINVALID_SOCKET,
+							  NULL, NULL);
+		/* Don't set cv_wait_event_set until we have a correct WES. */
+		cv_wait_event_set = new_event_set;
+	}
+}
+
 /*
  * Initialize a condition variable.
  */
@@ -58,6 +84,8 @@ void
 ConditionVariablePrepareToSleep(ConditionVariable *cv)
 {
 	int			pgprocno = MyProc->pgprocno;
+
+	ConditionVariableStartup();
 
 	/*
 	 * If some other sleep is already prepared, cancel it; this is necessary
@@ -115,7 +143,6 @@ ConditionVariableTimedSleep(ConditionVariable *cv, long timeout,
 	long		cur_timeout = -1;
 	instr_time	start_time;
 	instr_time	cur_time;
-	int			wait_events;
 
 	/*
 	 * If the caller didn't prepare to sleep explicitly, then do so now and
@@ -147,20 +174,19 @@ ConditionVariableTimedSleep(ConditionVariable *cv, long timeout,
 		INSTR_TIME_SET_CURRENT(start_time);
 		Assert(timeout >= 0 && timeout <= INT_MAX);
 		cur_timeout = timeout;
-		wait_events = WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH;
 	}
-	else
-		wait_events = WL_LATCH_SET | WL_EXIT_ON_PM_DEATH;
 
 	while (true)
 	{
+		WaitEvent	event;
 		bool		done = false;
 
 		/*
 		 * Wait for latch to be set.  (If we're awakened for some other
 		 * reason, the code below will cope anyway.)
 		 */
-		(void) WaitLatch(MyLatch, wait_events, cur_timeout, wait_event_info);
+		(void) WaitEventSetWait(cv_wait_event_set, cur_timeout, &event, 1,
+								wait_event_info);
 
 		/* Reset latch before examining the state of the wait list. */
 		ResetLatch(MyLatch);

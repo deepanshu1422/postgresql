@@ -424,10 +424,6 @@ libpqrcv_startstreaming(WalReceiverConn *conn,
 		PQfreemem(pubnames_literal);
 		pfree(pubnames_str);
 
-		if (options->proto.logical.binary &&
-			PQserverVersion(conn->streamConn) >= 140000)
-			appendStringInfoString(&cmd, ", binary 'true'");
-
 		appendStringInfoChar(&cmd, ')');
 	}
 	else

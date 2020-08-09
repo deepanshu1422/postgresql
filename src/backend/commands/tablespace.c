@@ -1183,7 +1183,6 @@ GetDefaultTablespace(char relpersistence, bool partitioned)
 
 typedef struct
 {
-	/* Array of OIDs to be passed to SetTempTablespaces() */
 	int			numSpcs;
 	Oid			tblSpcs[FLEXIBLE_ARRAY_MEMBER];
 } temp_tablespaces_extra;
@@ -1233,7 +1232,6 @@ check_temp_tablespaces(char **newval, void **extra, GucSource source)
 			/* Allow an empty string (signifying database default) */
 			if (curname[0] == '\0')
 			{
-				/* InvalidOid signifies database's default tablespace */
 				tblSpcs[numSpcs++] = InvalidOid;
 				continue;
 			}
@@ -1260,7 +1258,6 @@ check_temp_tablespaces(char **newval, void **extra, GucSource source)
 			 */
 			if (curoid == MyDatabaseTableSpace)
 			{
-				/* InvalidOid signifies database's default tablespace */
 				tblSpcs[numSpcs++] = InvalidOid;
 				continue;
 			}
@@ -1371,7 +1368,6 @@ PrepareTempTablespaces(void)
 		/* Allow an empty string (signifying database default) */
 		if (curname[0] == '\0')
 		{
-			/* InvalidOid signifies database's default tablespace */
 			tblSpcs[numSpcs++] = InvalidOid;
 			continue;
 		}
@@ -1390,7 +1386,6 @@ PrepareTempTablespaces(void)
 		 */
 		if (curoid == MyDatabaseTableSpace)
 		{
-			/* InvalidOid signifies database's default tablespace */
 			tblSpcs[numSpcs++] = InvalidOid;
 			continue;
 		}

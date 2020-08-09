@@ -242,7 +242,6 @@ pg_get_replication_slots(PG_FUNCTION_ARGS)
 	Tuplestorestate *tupstore;
 	MemoryContext per_query_ctx;
 	MemoryContext oldcontext;
-	XLogRecPtr	currlsn;
 	int			slotno;
 
 	/* check to see if caller supports us returning a tuplestore */
@@ -275,8 +274,6 @@ pg_get_replication_slots(PG_FUNCTION_ARGS)
 
 	MemoryContextSwitchTo(oldcontext);
 
-	currlsn = GetXLogWriteRecPtr();
-
 	LWLockAcquire(ReplicationSlotControlLock, LW_SHARED);
 	for (slotno = 0; slotno < max_replication_slots; slotno++)
 	{
@@ -285,6 +282,8 @@ pg_get_replication_slots(PG_FUNCTION_ARGS)
 		Datum		values[PG_GET_REPLICATION_SLOTS_COLS];
 		bool		nulls[PG_GET_REPLICATION_SLOTS_COLS];
 		WALAvailability walstate;
+		XLogSegNo	last_removed_seg;
+		XLogRecPtr	targetLSN;
 		int			i;
 
 		if (!slot->in_use)
@@ -345,15 +344,14 @@ pg_get_replication_slots(PG_FUNCTION_ARGS)
 			nulls[i++] = true;
 
 		/*
-		 * If invalidated_at is valid and restart_lsn is invalid, we know for
-		 * certain that the slot has been invalidated.  Otherwise, test
-		 * availability from restart_lsn.
+		 * Report availability from invalidated_at when the slot has been
+		 * invalidated; otherwise slots would appear as invalid without any
+		 * more clues as to what happened.
 		 */
-		if (XLogRecPtrIsInvalid(slot_contents.data.restart_lsn) &&
-			!XLogRecPtrIsInvalid(slot_contents.data.invalidated_at))
-			walstate = WALAVAIL_REMOVED;
-		else
-			walstate = GetWALAvailability(slot_contents.data.restart_lsn);
+		targetLSN = XLogRecPtrIsInvalid(slot_contents.data.restart_lsn) ?
+			slot_contents.data.invalidated_at :
+			slot_contents.data.restart_lsn;
+		walstate = GetWALAvailability(targetLSN);
 
 		switch (walstate)
 		{
@@ -382,8 +380,6 @@ pg_get_replication_slots(PG_FUNCTION_ARGS)
 				 * we looked.  If checkpointer signalled the process to
 				 * termination, then it's definitely lost; but if a process is
 				 * still alive, then "unreserved" seems more appropriate.
-				 *
-				 * If we do change it, save the state for safe_wal_size below.
 				 */
 				if (!XLogRecPtrIsInvalid(slot_contents.data.restart_lsn))
 				{
@@ -391,12 +387,10 @@ pg_get_replication_slots(PG_FUNCTION_ARGS)
 
 					SpinLockAcquire(&slot->mutex);
 					pid = slot->active_pid;
-					slot_contents.data.restart_lsn = slot->data.restart_lsn;
 					SpinLockRelease(&slot->mutex);
 					if (pid != 0)
 					{
 						values[i++] = CStringGetTextDatum("unreserved");
-						walstate = WALAVAIL_UNRESERVED;
 						break;
 					}
 				}
@@ -404,33 +398,18 @@ pg_get_replication_slots(PG_FUNCTION_ARGS)
 				break;
 		}
 
-		/*
-		 * safe_wal_size is only computed for slots that have not been lost,
-		 * and only if there's a configured maximum size.
-		 */
-		if (walstate == WALAVAIL_REMOVED || max_slot_wal_keep_size_mb < 0)
-			nulls[i++] = true;
-		else
+		if (max_slot_wal_keep_size_mb >= 0 &&
+			(walstate == WALAVAIL_RESERVED || walstate == WALAVAIL_EXTENDED) &&
+			((last_removed_seg = XLogGetLastRemovedSegno()) != 0))
 		{
-			XLogSegNo   targetSeg;
-			uint64   slotKeepSegs;
-			uint64   keepSegs;
-			XLogSegNo   failSeg;
-			XLogRecPtr  failLSN;
+			XLogRecPtr	min_safe_lsn;
 
-			XLByteToSeg(slot_contents.data.restart_lsn, targetSeg, wal_segment_size);
-
-			/* determine how many segments slots can be kept by slots */
-			slotKeepSegs = XLogMBVarToSegs(max_slot_wal_keep_size_mb, wal_segment_size);
-			/* ditto for wal_keep_size */
-			keepSegs = XLogMBVarToSegs(wal_keep_size_mb, wal_segment_size);
-
-			/* if currpos reaches failLSN, we lose our segment */
-			failSeg = targetSeg + Max(slotKeepSegs, keepSegs) + 1;
-			XLogSegNoOffsetToRecPtr(failSeg, 0, wal_segment_size, failLSN);
-
-			values[i++] = Int64GetDatum(failLSN - currlsn);
+			XLogSegNoOffsetToRecPtr(last_removed_seg + 1, 0,
+									wal_segment_size, min_safe_lsn);
+			values[i++] = Int64GetDatum(min_safe_lsn);
 		}
+		else
+			nulls[i++] = true;
 
 		Assert(i == PG_GET_REPLICATION_SLOTS_COLS);
 

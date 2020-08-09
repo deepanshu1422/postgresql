@@ -37,6 +37,8 @@
 #include "pgstat.h"
 #include "postmaster/autovacuum.h"
 #include "postmaster/postmaster.h"
+#include "storage/aio.h"
+#include "storage/condition_variable.h"
 #include "storage/fd.h"
 #include "storage/ipc.h"
 #include "storage/latch.h"
@@ -120,7 +122,8 @@ InitPostmasterChild(void)
 	InitializeLatchSupport();
 	MyLatch = &LocalLatchData;
 	InitLatch(MyLatch);
-	InitializeLatchWaitSet();
+
+	pgaio_postmaster_child_init_local();
 
 	/*
 	 * If possible, make this process a group leader, so that the postmaster
@@ -153,7 +156,6 @@ InitStandaloneProcess(const char *argv0)
 	InitializeLatchSupport();
 	MyLatch = &LocalLatchData;
 	InitLatch(MyLatch);
-	InitializeLatchWaitSet();
 
 	/* Compute paths, no postmaster to inherit from */
 	if (my_exec_path[0] == '\0')
@@ -184,6 +186,9 @@ SwitchToSharedLatch(void)
 	 * condition before waiting for the latch, but a bit care can't hurt.
 	 */
 	SetLatch(MyLatch);
+
+	if (IsUnderPostmaster)
+		ConditionVariableStartup();
 }
 
 void

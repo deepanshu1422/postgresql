@@ -1,6 +1,6 @@
 /*-------------------------------------------------------------------------
  *
- * bgwriter.c
+ *
  *
  * The background writer (bgwriter) is new as of Postgres 8.0.  It attempts
  * to keep regular backends from having to write out dirty shared buffers

@@ -260,12 +260,12 @@ static MemoryContext get_stmt_mcontext(PLpgSQL_execstate *estate);
 static void push_stmt_mcontext(PLpgSQL_execstate *estate);
 static void pop_stmt_mcontext(PLpgSQL_execstate *estate);
 
-static int	exec_toplevel_block(PLpgSQL_execstate *estate,
-								PLpgSQL_stmt_block *block);
 static int	exec_stmt_block(PLpgSQL_execstate *estate,
 							PLpgSQL_stmt_block *block);
 static int	exec_stmts(PLpgSQL_execstate *estate,
 					   List *stmts);
+static int	exec_stmt(PLpgSQL_execstate *estate,
+					  PLpgSQL_stmt *stmt);
 static int	exec_stmt_assign(PLpgSQL_execstate *estate,
 							 PLpgSQL_stmt_assign *stmt);
 static int	exec_stmt_perform(PLpgSQL_execstate *estate,
@@ -417,14 +417,10 @@ static void instantiate_empty_record_variable(PLpgSQL_execstate *estate,
 											  PLpgSQL_rec *rec);
 static char *convert_value_to_string(PLpgSQL_execstate *estate,
 									 Datum value, Oid valtype);
-static inline Datum exec_cast_value(PLpgSQL_execstate *estate,
-									Datum value, bool *isnull,
-									Oid valtype, int32 valtypmod,
-									Oid reqtype, int32 reqtypmod);
-static Datum do_cast_value(PLpgSQL_execstate *estate,
-						   Datum value, bool *isnull,
-						   Oid valtype, int32 valtypmod,
-						   Oid reqtype, int32 reqtypmod);
+static Datum exec_cast_value(PLpgSQL_execstate *estate,
+							 Datum value, bool *isnull,
+							 Oid valtype, int32 valtypmod,
+							 Oid reqtype, int32 reqtypmod);
 static plpgsql_CastHashEntry *get_cast_hashentry(PLpgSQL_execstate *estate,
 												 Oid srctype, int32 srctypmod,
 												 Oid dsttype, int32 dsttypmod);
@@ -603,9 +599,11 @@ plpgsql_exec_function(PLpgSQL_function *func, FunctionCallInfo fcinfo,
 	 * Now call the toplevel block of statements
 	 */
 	estate.err_text = NULL;
-	rc = exec_toplevel_block(&estate, func->action);
+	estate.err_stmt = (PLpgSQL_stmt *) (func->action);
+	rc = exec_stmt(&estate, (PLpgSQL_stmt *) func->action);
 	if (rc != PLPGSQL_RC_RETURN)
 	{
+		estate.err_stmt = NULL;
 		estate.err_text = NULL;
 		ereport(ERROR,
 				(errcode(ERRCODE_S_R_E_FUNCTION_EXECUTED_NO_RETURN_STATEMENT),
@@ -615,6 +613,7 @@ plpgsql_exec_function(PLpgSQL_function *func, FunctionCallInfo fcinfo,
 	/*
 	 * We got a return value - process it
 	 */
+	estate.err_stmt = NULL;
 	estate.err_text = gettext_noop("while casting return value to function's return type");
 
 	fcinfo->isnull = estate.retisnull;
@@ -1016,15 +1015,18 @@ plpgsql_exec_trigger(PLpgSQL_function *func,
 	 * Now call the toplevel block of statements
 	 */
 	estate.err_text = NULL;
-	rc = exec_toplevel_block(&estate, func->action);
+	estate.err_stmt = (PLpgSQL_stmt *) (func->action);
+	rc = exec_stmt(&estate, (PLpgSQL_stmt *) func->action);
 	if (rc != PLPGSQL_RC_RETURN)
 	{
+		estate.err_stmt = NULL;
 		estate.err_text = NULL;
 		ereport(ERROR,
 				(errcode(ERRCODE_S_R_E_FUNCTION_EXECUTED_NO_RETURN_STATEMENT),
 				 errmsg("control reached end of trigger procedure without RETURN")));
 	}
 
+	estate.err_stmt = NULL;
 	estate.err_text = gettext_noop("during function exit");
 
 	if (estate.retisset)
@@ -1174,15 +1176,18 @@ plpgsql_exec_event_trigger(PLpgSQL_function *func, EventTriggerData *trigdata)
 	 * Now call the toplevel block of statements
 	 */
 	estate.err_text = NULL;
-	rc = exec_toplevel_block(&estate, func->action);
+	estate.err_stmt = (PLpgSQL_stmt *) (func->action);
+	rc = exec_stmt(&estate, (PLpgSQL_stmt *) func->action);
 	if (rc != PLPGSQL_RC_RETURN)
 	{
+		estate.err_stmt = NULL;
 		estate.err_text = NULL;
 		ereport(ERROR,
 				(errcode(ERRCODE_S_R_E_FUNCTION_EXECUTED_NO_RETURN_STATEMENT),
 				 errmsg("control reached end of trigger procedure without RETURN")));
 	}
 
+	estate.err_stmt = NULL;
 	estate.err_text = gettext_noop("during function exit");
 
 	/*
@@ -1580,40 +1585,6 @@ exception_matches_conditions(ErrorData *edata, PLpgSQL_condition *cond)
 
 
 /* ----------
- * exec_toplevel_block			Execute the toplevel block
- *
- * This is intentionally equivalent to executing exec_stmts() with a
- * list consisting of the one statement.  One tiny difference is that
- * we do not bother to save the entry value of estate->err_stmt;
- * that's assumed to be NULL.
- * ----------
- */
-static int
-exec_toplevel_block(PLpgSQL_execstate *estate, PLpgSQL_stmt_block *block)
-{
-	int			rc;
-
-	estate->err_stmt = (PLpgSQL_stmt *) block;
-
-	/* Let the plugin know that we are about to execute this statement */
-	if (*plpgsql_plugin_ptr && (*plpgsql_plugin_ptr)->stmt_beg)
-		((*plpgsql_plugin_ptr)->stmt_beg) (estate, (PLpgSQL_stmt *) block);
-
-	CHECK_FOR_INTERRUPTS();
-
-	rc = exec_stmt_block(estate, block);
-
-	/* Let the plugin know that we have finished executing this statement */
-	if (*plpgsql_plugin_ptr && (*plpgsql_plugin_ptr)->stmt_end)
-		((*plpgsql_plugin_ptr)->stmt_end) (estate, (PLpgSQL_stmt *) block);
-
-	estate->err_stmt = NULL;
-
-	return rc;
-}
-
-
-/* ----------
  * exec_stmt_block			Execute a block of statements
  * ----------
  */
@@ -1946,7 +1917,6 @@ exec_stmt_block(PLpgSQL_execstate *estate, PLpgSQL_stmt_block *block)
 static int
 exec_stmts(PLpgSQL_execstate *estate, List *stmts)
 {
-	PLpgSQL_stmt *save_estmt = estate->err_stmt;
 	ListCell   *s;
 
 	if (stmts == NIL)
@@ -1963,150 +1933,162 @@ exec_stmts(PLpgSQL_execstate *estate, List *stmts)
 	foreach(s, stmts)
 	{
 		PLpgSQL_stmt *stmt = (PLpgSQL_stmt *) lfirst(s);
-		int			rc;
-
-		estate->err_stmt = stmt;
-
-		/* Let the plugin know that we are about to execute this statement */
-		if (*plpgsql_plugin_ptr && (*plpgsql_plugin_ptr)->stmt_beg)
-			((*plpgsql_plugin_ptr)->stmt_beg) (estate, stmt);
-
-		CHECK_FOR_INTERRUPTS();
-
-		switch (stmt->cmd_type)
-		{
-			case PLPGSQL_STMT_BLOCK:
-				rc = exec_stmt_block(estate, (PLpgSQL_stmt_block *) stmt);
-				break;
-
-			case PLPGSQL_STMT_ASSIGN:
-				rc = exec_stmt_assign(estate, (PLpgSQL_stmt_assign *) stmt);
-				break;
-
-			case PLPGSQL_STMT_PERFORM:
-				rc = exec_stmt_perform(estate, (PLpgSQL_stmt_perform *) stmt);
-				break;
-
-			case PLPGSQL_STMT_CALL:
-				rc = exec_stmt_call(estate, (PLpgSQL_stmt_call *) stmt);
-				break;
-
-			case PLPGSQL_STMT_GETDIAG:
-				rc = exec_stmt_getdiag(estate, (PLpgSQL_stmt_getdiag *) stmt);
-				break;
-
-			case PLPGSQL_STMT_IF:
-				rc = exec_stmt_if(estate, (PLpgSQL_stmt_if *) stmt);
-				break;
-
-			case PLPGSQL_STMT_CASE:
-				rc = exec_stmt_case(estate, (PLpgSQL_stmt_case *) stmt);
-				break;
-
-			case PLPGSQL_STMT_LOOP:
-				rc = exec_stmt_loop(estate, (PLpgSQL_stmt_loop *) stmt);
-				break;
-
-			case PLPGSQL_STMT_WHILE:
-				rc = exec_stmt_while(estate, (PLpgSQL_stmt_while *) stmt);
-				break;
-
-			case PLPGSQL_STMT_FORI:
-				rc = exec_stmt_fori(estate, (PLpgSQL_stmt_fori *) stmt);
-				break;
-
-			case PLPGSQL_STMT_FORS:
-				rc = exec_stmt_fors(estate, (PLpgSQL_stmt_fors *) stmt);
-				break;
-
-			case PLPGSQL_STMT_FORC:
-				rc = exec_stmt_forc(estate, (PLpgSQL_stmt_forc *) stmt);
-				break;
-
-			case PLPGSQL_STMT_FOREACH_A:
-				rc = exec_stmt_foreach_a(estate, (PLpgSQL_stmt_foreach_a *) stmt);
-				break;
-
-			case PLPGSQL_STMT_EXIT:
-				rc = exec_stmt_exit(estate, (PLpgSQL_stmt_exit *) stmt);
-				break;
-
-			case PLPGSQL_STMT_RETURN:
-				rc = exec_stmt_return(estate, (PLpgSQL_stmt_return *) stmt);
-				break;
-
-			case PLPGSQL_STMT_RETURN_NEXT:
-				rc = exec_stmt_return_next(estate, (PLpgSQL_stmt_return_next *) stmt);
-				break;
-
-			case PLPGSQL_STMT_RETURN_QUERY:
-				rc = exec_stmt_return_query(estate, (PLpgSQL_stmt_return_query *) stmt);
-				break;
-
-			case PLPGSQL_STMT_RAISE:
-				rc = exec_stmt_raise(estate, (PLpgSQL_stmt_raise *) stmt);
-				break;
-
-			case PLPGSQL_STMT_ASSERT:
-				rc = exec_stmt_assert(estate, (PLpgSQL_stmt_assert *) stmt);
-				break;
-
-			case PLPGSQL_STMT_EXECSQL:
-				rc = exec_stmt_execsql(estate, (PLpgSQL_stmt_execsql *) stmt);
-				break;
-
-			case PLPGSQL_STMT_DYNEXECUTE:
-				rc = exec_stmt_dynexecute(estate, (PLpgSQL_stmt_dynexecute *) stmt);
-				break;
-
-			case PLPGSQL_STMT_DYNFORS:
-				rc = exec_stmt_dynfors(estate, (PLpgSQL_stmt_dynfors *) stmt);
-				break;
-
-			case PLPGSQL_STMT_OPEN:
-				rc = exec_stmt_open(estate, (PLpgSQL_stmt_open *) stmt);
-				break;
-
-			case PLPGSQL_STMT_FETCH:
-				rc = exec_stmt_fetch(estate, (PLpgSQL_stmt_fetch *) stmt);
-				break;
-
-			case PLPGSQL_STMT_CLOSE:
-				rc = exec_stmt_close(estate, (PLpgSQL_stmt_close *) stmt);
-				break;
-
-			case PLPGSQL_STMT_COMMIT:
-				rc = exec_stmt_commit(estate, (PLpgSQL_stmt_commit *) stmt);
-				break;
-
-			case PLPGSQL_STMT_ROLLBACK:
-				rc = exec_stmt_rollback(estate, (PLpgSQL_stmt_rollback *) stmt);
-				break;
-
-			case PLPGSQL_STMT_SET:
-				rc = exec_stmt_set(estate, (PLpgSQL_stmt_set *) stmt);
-				break;
-
-			default:
-				/* point err_stmt to parent, since this one seems corrupt */
-				estate->err_stmt = save_estmt;
-				elog(ERROR, "unrecognized cmd_type: %d", stmt->cmd_type);
-				rc = -1;		/* keep compiler quiet */
-		}
-
-		/* Let the plugin know that we have finished executing this statement */
-		if (*plpgsql_plugin_ptr && (*plpgsql_plugin_ptr)->stmt_end)
-			((*plpgsql_plugin_ptr)->stmt_end) (estate, stmt);
+		int			rc = exec_stmt(estate, stmt);
 
 		if (rc != PLPGSQL_RC_OK)
-		{
-			estate->err_stmt = save_estmt;
 			return rc;
-		}
-	}							/* end of loop over statements */
+	}
+
+	return PLPGSQL_RC_OK;
+}
+
+
+/* ----------
+ * exec_stmt			Distribute one statement to the statements
+ *				type specific execution function.
+ * ----------
+ */
+static int
+exec_stmt(PLpgSQL_execstate *estate, PLpgSQL_stmt *stmt)
+{
+	PLpgSQL_stmt *save_estmt;
+	int			rc = -1;
+
+	save_estmt = estate->err_stmt;
+	estate->err_stmt = stmt;
+
+	/* Let the plugin know that we are about to execute this statement */
+	if (*plpgsql_plugin_ptr && (*plpgsql_plugin_ptr)->stmt_beg)
+		((*plpgsql_plugin_ptr)->stmt_beg) (estate, stmt);
+
+	CHECK_FOR_INTERRUPTS();
+
+	switch (stmt->cmd_type)
+	{
+		case PLPGSQL_STMT_BLOCK:
+			rc = exec_stmt_block(estate, (PLpgSQL_stmt_block *) stmt);
+			break;
+
+		case PLPGSQL_STMT_ASSIGN:
+			rc = exec_stmt_assign(estate, (PLpgSQL_stmt_assign *) stmt);
+			break;
+
+		case PLPGSQL_STMT_PERFORM:
+			rc = exec_stmt_perform(estate, (PLpgSQL_stmt_perform *) stmt);
+			break;
+
+		case PLPGSQL_STMT_CALL:
+			rc = exec_stmt_call(estate, (PLpgSQL_stmt_call *) stmt);
+			break;
+
+		case PLPGSQL_STMT_GETDIAG:
+			rc = exec_stmt_getdiag(estate, (PLpgSQL_stmt_getdiag *) stmt);
+			break;
+
+		case PLPGSQL_STMT_IF:
+			rc = exec_stmt_if(estate, (PLpgSQL_stmt_if *) stmt);
+			break;
+
+		case PLPGSQL_STMT_CASE:
+			rc = exec_stmt_case(estate, (PLpgSQL_stmt_case *) stmt);
+			break;
+
+		case PLPGSQL_STMT_LOOP:
+			rc = exec_stmt_loop(estate, (PLpgSQL_stmt_loop *) stmt);
+			break;
+
+		case PLPGSQL_STMT_WHILE:
+			rc = exec_stmt_while(estate, (PLpgSQL_stmt_while *) stmt);
+			break;
+
+		case PLPGSQL_STMT_FORI:
+			rc = exec_stmt_fori(estate, (PLpgSQL_stmt_fori *) stmt);
+			break;
+
+		case PLPGSQL_STMT_FORS:
+			rc = exec_stmt_fors(estate, (PLpgSQL_stmt_fors *) stmt);
+			break;
+
+		case PLPGSQL_STMT_FORC:
+			rc = exec_stmt_forc(estate, (PLpgSQL_stmt_forc *) stmt);
+			break;
+
+		case PLPGSQL_STMT_FOREACH_A:
+			rc = exec_stmt_foreach_a(estate, (PLpgSQL_stmt_foreach_a *) stmt);
+			break;
+
+		case PLPGSQL_STMT_EXIT:
+			rc = exec_stmt_exit(estate, (PLpgSQL_stmt_exit *) stmt);
+			break;
+
+		case PLPGSQL_STMT_RETURN:
+			rc = exec_stmt_return(estate, (PLpgSQL_stmt_return *) stmt);
+			break;
+
+		case PLPGSQL_STMT_RETURN_NEXT:
+			rc = exec_stmt_return_next(estate, (PLpgSQL_stmt_return_next *) stmt);
+			break;
+
+		case PLPGSQL_STMT_RETURN_QUERY:
+			rc = exec_stmt_return_query(estate, (PLpgSQL_stmt_return_query *) stmt);
+			break;
+
+		case PLPGSQL_STMT_RAISE:
+			rc = exec_stmt_raise(estate, (PLpgSQL_stmt_raise *) stmt);
+			break;
+
+		case PLPGSQL_STMT_ASSERT:
+			rc = exec_stmt_assert(estate, (PLpgSQL_stmt_assert *) stmt);
+			break;
+
+		case PLPGSQL_STMT_EXECSQL:
+			rc = exec_stmt_execsql(estate, (PLpgSQL_stmt_execsql *) stmt);
+			break;
+
+		case PLPGSQL_STMT_DYNEXECUTE:
+			rc = exec_stmt_dynexecute(estate, (PLpgSQL_stmt_dynexecute *) stmt);
+			break;
+
+		case PLPGSQL_STMT_DYNFORS:
+			rc = exec_stmt_dynfors(estate, (PLpgSQL_stmt_dynfors *) stmt);
+			break;
+
+		case PLPGSQL_STMT_OPEN:
+			rc = exec_stmt_open(estate, (PLpgSQL_stmt_open *) stmt);
+			break;
+
+		case PLPGSQL_STMT_FETCH:
+			rc = exec_stmt_fetch(estate, (PLpgSQL_stmt_fetch *) stmt);
+			break;
+
+		case PLPGSQL_STMT_CLOSE:
+			rc = exec_stmt_close(estate, (PLpgSQL_stmt_close *) stmt);
+			break;
+
+		case PLPGSQL_STMT_COMMIT:
+			rc = exec_stmt_commit(estate, (PLpgSQL_stmt_commit *) stmt);
+			break;
+
+		case PLPGSQL_STMT_ROLLBACK:
+			rc = exec_stmt_rollback(estate, (PLpgSQL_stmt_rollback *) stmt);
+			break;
+
+		case PLPGSQL_STMT_SET:
+			rc = exec_stmt_set(estate, (PLpgSQL_stmt_set *) stmt);
+			break;
+
+		default:
+			estate->err_stmt = save_estmt;
+			elog(ERROR, "unrecognized cmd_type: %d", stmt->cmd_type);
+	}
+
+	/* Let the plugin know that we have finished executing this statement */
+	if (*plpgsql_plugin_ptr && (*plpgsql_plugin_ptr)->stmt_end)
+		((*plpgsql_plugin_ptr)->stmt_end) (estate, stmt);
 
 	estate->err_stmt = save_estmt;
-	return PLPGSQL_RC_OK;
+
+	return rc;
 }
 
 
@@ -7829,7 +7811,7 @@ convert_value_to_string(PLpgSQL_execstate *estate, Datum value, Oid valtype)
  * done with the result.
  * ----------
  */
-static inline Datum
+static Datum
 exec_cast_value(PLpgSQL_execstate *estate,
 				Datum value, bool *isnull,
 				Oid valtype, int32 valtypmod,
@@ -7841,47 +7823,30 @@ exec_cast_value(PLpgSQL_execstate *estate,
 	if (valtype != reqtype ||
 		(valtypmod != reqtypmod && reqtypmod != -1))
 	{
-		/* We keep the slow path out-of-line. */
-		value = do_cast_value(estate, value, isnull, valtype, valtypmod,
-							  reqtype, reqtypmod);
-	}
+		plpgsql_CastHashEntry *cast_entry;
 
-	return value;
-}
+		cast_entry = get_cast_hashentry(estate,
+										valtype, valtypmod,
+										reqtype, reqtypmod);
+		if (cast_entry)
+		{
+			ExprContext *econtext = estate->eval_econtext;
+			MemoryContext oldcontext;
 
-/* ----------
- * do_cast_value			Slow path for exec_cast_value.
- * ----------
- */
-static Datum
-do_cast_value(PLpgSQL_execstate *estate,
-			  Datum value, bool *isnull,
-			  Oid valtype, int32 valtypmod,
-			  Oid reqtype, int32 reqtypmod)
-{
-	plpgsql_CastHashEntry *cast_entry;
+			oldcontext = MemoryContextSwitchTo(get_eval_mcontext(estate));
 
-	cast_entry = get_cast_hashentry(estate,
-									valtype, valtypmod,
-									reqtype, reqtypmod);
-	if (cast_entry)
-	{
-		ExprContext *econtext = estate->eval_econtext;
-		MemoryContext oldcontext;
+			econtext->caseValue_datum = value;
+			econtext->caseValue_isNull = *isnull;
 
-		oldcontext = MemoryContextSwitchTo(get_eval_mcontext(estate));
+			cast_entry->cast_in_use = true;
 
-		econtext->caseValue_datum = value;
-		econtext->caseValue_isNull = *isnull;
+			value = ExecEvalExpr(cast_entry->cast_exprstate, econtext,
+								 isnull);
 
-		cast_entry->cast_in_use = true;
+			cast_entry->cast_in_use = false;
 
-		value = ExecEvalExpr(cast_entry->cast_exprstate, econtext,
-							 isnull);
-
-		cast_entry->cast_in_use = false;
-
-		MemoryContextSwitchTo(oldcontext);
+			MemoryContextSwitchTo(oldcontext);
+		}
 	}
 
 	return value;

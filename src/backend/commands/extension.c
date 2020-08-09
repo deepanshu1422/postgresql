@@ -1783,7 +1783,6 @@ InsertExtensionTuple(const char *extName, Oid extOwner,
 	HeapTuple	tuple;
 	ObjectAddress myself;
 	ObjectAddress nsp;
-	ObjectAddresses *refobjs;
 	ListCell   *lc;
 
 	/*
@@ -1826,26 +1825,27 @@ InsertExtensionTuple(const char *extName, Oid extOwner,
 	 */
 	recordDependencyOnOwner(ExtensionRelationId, extensionOid, extOwner);
 
-	refobjs = new_object_addresses();
+	myself.classId = ExtensionRelationId;
+	myself.objectId = extensionOid;
+	myself.objectSubId = 0;
 
-	ObjectAddressSet(myself, ExtensionRelationId, extensionOid);
+	nsp.classId = NamespaceRelationId;
+	nsp.objectId = schemaOid;
+	nsp.objectSubId = 0;
 
-	ObjectAddressSet(nsp, NamespaceRelationId, schemaOid);
-	add_exact_object_address(&nsp, refobjs);
+	recordDependencyOn(&myself, &nsp, DEPENDENCY_NORMAL);
 
 	foreach(lc, requiredExtensions)
 	{
 		Oid			reqext = lfirst_oid(lc);
 		ObjectAddress otherext;
 
-		ObjectAddressSet(otherext, ExtensionRelationId, reqext);
-		add_exact_object_address(&otherext, refobjs);
+		otherext.classId = ExtensionRelationId;
+		otherext.objectId = reqext;
+		otherext.objectSubId = 0;
+
+		recordDependencyOn(&myself, &otherext, DEPENDENCY_NORMAL);
 	}
-
-	/* Record all of them (this includes duplicate elimination) */
-	record_object_address_dependencies(&myself, refobjs, DEPENDENCY_NORMAL);
-	free_object_addresses(refobjs);
-
 	/* Post creation hook for new extension */
 	InvokeObjectPostCreateHook(ExtensionRelationId, extensionOid, 0);
 
@@ -2919,7 +2919,7 @@ AlterExtensionNamespace(const char *extensionName, const char *newschema, Oid *o
 					 errmsg("extension \"%s\" does not support SET SCHEMA",
 							NameStr(extForm->extname)),
 					 errdetail("%s is not in the extension's schema \"%s\"",
-							   getObjectDescription(&dep, false),
+							   getObjectDescription(&dep),
 							   get_namespace_name(oldNspOid))));
 	}
 
@@ -3328,7 +3328,7 @@ ExecAlterExtensionContentsStmt(AlterExtensionContentsStmt *stmt,
 			ereport(ERROR,
 					(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
 					 errmsg("%s is already a member of extension \"%s\"",
-							getObjectDescription(&object, false),
+							getObjectDescription(&object),
 							get_extension_name(oldExtension))));
 
 		/*
@@ -3368,7 +3368,7 @@ ExecAlterExtensionContentsStmt(AlterExtensionContentsStmt *stmt,
 			ereport(ERROR,
 					(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
 					 errmsg("%s is not a member of extension \"%s\"",
-							getObjectDescription(&object, false),
+							getObjectDescription(&object),
 							stmt->extname)));
 
 		/*

@@ -223,7 +223,9 @@ CreateConstraintEntry(const char *constraintName,
 
 	CatalogTupleInsert(conDesc, tup);
 
-	ObjectAddressSet(conobject, ConstraintRelationId, conOid);
+	conobject.classId = ConstraintRelationId;
+	conobject.objectId = conOid;
+	conobject.objectSubId = 0;
 
 	table_close(conDesc, RowExclusiveLock);
 
@@ -235,18 +237,21 @@ CreateConstraintEntry(const char *constraintName,
 		 */
 		ObjectAddress relobject;
 
+		relobject.classId = RelationRelationId;
+		relobject.objectId = relId;
 		if (constraintNTotalKeys > 0)
 		{
 			for (i = 0; i < constraintNTotalKeys; i++)
 			{
-				ObjectAddressSubSet(relobject, RelationRelationId, relId,
-									constraintKey[i]);
+				relobject.objectSubId = constraintKey[i];
+
 				recordDependencyOn(&conobject, &relobject, DEPENDENCY_AUTO);
 			}
 		}
 		else
 		{
-			ObjectAddressSet(relobject, RelationRelationId, relId);
+			relobject.objectSubId = 0;
+
 			recordDependencyOn(&conobject, &relobject, DEPENDENCY_AUTO);
 		}
 	}
@@ -258,7 +263,10 @@ CreateConstraintEntry(const char *constraintName,
 		 */
 		ObjectAddress domobject;
 
-		ObjectAddressSet(domobject, TypeRelationId, domainId);
+		domobject.classId = TypeRelationId;
+		domobject.objectId = domainId;
+		domobject.objectSubId = 0;
+
 		recordDependencyOn(&conobject, &domobject, DEPENDENCY_AUTO);
 	}
 
@@ -270,18 +278,21 @@ CreateConstraintEntry(const char *constraintName,
 		 */
 		ObjectAddress relobject;
 
+		relobject.classId = RelationRelationId;
+		relobject.objectId = foreignRelId;
 		if (foreignNKeys > 0)
 		{
 			for (i = 0; i < foreignNKeys; i++)
 			{
-				ObjectAddressSubSet(relobject, RelationRelationId,
-									foreignRelId, foreignKey[i]);
+				relobject.objectSubId = foreignKey[i];
+
 				recordDependencyOn(&conobject, &relobject, DEPENDENCY_NORMAL);
 			}
 		}
 		else
 		{
-			ObjectAddressSet(relobject, RelationRelationId, foreignRelId);
+			relobject.objectSubId = 0;
+
 			recordDependencyOn(&conobject, &relobject, DEPENDENCY_NORMAL);
 		}
 	}
@@ -296,7 +307,10 @@ CreateConstraintEntry(const char *constraintName,
 		 */
 		ObjectAddress relobject;
 
-		ObjectAddressSet(relobject, RelationRelationId, indexRelId);
+		relobject.classId = RelationRelationId;
+		relobject.objectId = indexRelId;
+		relobject.objectSubId = 0;
+
 		recordDependencyOn(&conobject, &relobject, DEPENDENCY_NORMAL);
 	}
 
@@ -708,7 +722,9 @@ AlterConstraintNamespaces(Oid ownerId, Oid oldNspId,
 		Form_pg_constraint conform = (Form_pg_constraint) GETSTRUCT(tup);
 		ObjectAddress thisobj;
 
-		ObjectAddressSet(thisobj, ConstraintRelationId, conform->oid);
+		thisobj.classId = ConstraintRelationId;
+		thisobj.objectId = conform->oid;
+		thisobj.objectSubId = 0;
 
 		if (object_address_present(&thisobj, objsMoved))
 			continue;

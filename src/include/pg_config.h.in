@@ -1,4 +1,4 @@
-/* src/include/pg_config.h.in.  Generated from configure.ac by autoheader.  */
+/* src/include/pg_config.h.in.  Generated from configure.in by autoheader.  */
 
 /* Define to the type of arg 1 of 'accept' */
 #undef ACCEPT_TYPE_ARG1
@@ -749,10 +749,6 @@
 /* Define bytes to use libc memset(). */
 #undef MEMSET_LOOP_LIMIT
 
-/* Define to the OpenSSL API version in use. This avoids deprecation warnings
-   from newer OpenSSL versions. */
-#undef OPENSSL_API_COMPAT
-
 /* Define to the address where bug reports for this package should be sent. */
 #undef PACKAGE_BUGREPORT
 
@@ -870,6 +866,9 @@
 
 /* Define to 1 to build with LDAP support. (--with-ldap) */
 #undef USE_LDAP
+
+/* Define to build with io-uring support. (--with-liburing) */
+#undef USE_LIBURING
 
 /* Define to 1 to build with XML support. (--with-libxml) */
 #undef USE_LIBXML

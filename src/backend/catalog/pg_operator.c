@@ -776,7 +776,9 @@ makeOperatorDependencies(HeapTuple tuple, bool isUpdate)
 	ObjectAddress myself,
 				referenced;
 
-	ObjectAddressSet(myself, OperatorRelationId, oper->oid);
+	myself.classId = OperatorRelationId;
+	myself.objectId = oper->oid;
+	myself.objectSubId = 0;
 
 	/*
 	 * If we are updating the operator, delete any existing entries, except
@@ -791,28 +793,36 @@ makeOperatorDependencies(HeapTuple tuple, bool isUpdate)
 	/* Dependency on namespace */
 	if (OidIsValid(oper->oprnamespace))
 	{
-		ObjectAddressSet(referenced, NamespaceRelationId, oper->oprnamespace);
+		referenced.classId = NamespaceRelationId;
+		referenced.objectId = oper->oprnamespace;
+		referenced.objectSubId = 0;
 		recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
 	}
 
 	/* Dependency on left type */
 	if (OidIsValid(oper->oprleft))
 	{
-		ObjectAddressSet(referenced, TypeRelationId, oper->oprleft);
+		referenced.classId = TypeRelationId;
+		referenced.objectId = oper->oprleft;
+		referenced.objectSubId = 0;
 		recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
 	}
 
 	/* Dependency on right type */
 	if (OidIsValid(oper->oprright))
 	{
-		ObjectAddressSet(referenced, TypeRelationId, oper->oprright);
+		referenced.classId = TypeRelationId;
+		referenced.objectId = oper->oprright;
+		referenced.objectSubId = 0;
 		recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
 	}
 
 	/* Dependency on result type */
 	if (OidIsValid(oper->oprresult))
 	{
-		ObjectAddressSet(referenced, TypeRelationId, oper->oprresult);
+		referenced.classId = TypeRelationId;
+		referenced.objectId = oper->oprresult;
+		referenced.objectSubId = 0;
 		recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
 	}
 
@@ -828,21 +838,27 @@ makeOperatorDependencies(HeapTuple tuple, bool isUpdate)
 	/* Dependency on implementation function */
 	if (OidIsValid(oper->oprcode))
 	{
-		ObjectAddressSet(referenced, ProcedureRelationId, oper->oprcode);
+		referenced.classId = ProcedureRelationId;
+		referenced.objectId = oper->oprcode;
+		referenced.objectSubId = 0;
 		recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
 	}
 
 	/* Dependency on restriction selectivity function */
 	if (OidIsValid(oper->oprrest))
 	{
-		ObjectAddressSet(referenced, ProcedureRelationId, oper->oprrest);
+		referenced.classId = ProcedureRelationId;
+		referenced.objectId = oper->oprrest;
+		referenced.objectSubId = 0;
 		recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
 	}
 
 	/* Dependency on join selectivity function */
 	if (OidIsValid(oper->oprjoin))
 	{
-		ObjectAddressSet(referenced, ProcedureRelationId, oper->oprjoin);
+		referenced.classId = ProcedureRelationId;
+		referenced.objectId = oper->oprjoin;
+		referenced.objectSubId = 0;
 		recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
 	}
 

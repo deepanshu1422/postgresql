@@ -51,8 +51,8 @@ sub test_role
 	return;
 }
 
-# Initialize primary node
-my $node = get_new_node('primary');
+# Initialize master node
+my $node = get_new_node('master');
 $node->init;
 $node->start;
 

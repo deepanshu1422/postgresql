@@ -145,7 +145,7 @@ static List *tokenize_inc_file(List *tokens, const char *outer_filename,
 static bool parse_hba_auth_opt(char *name, char *val, HbaLine *hbaline,
 							   int elevel, char **err_msg);
 static bool verify_option_list_length(List *options, const char *optionname,
-									  List *comparelist, const char *comparename, int line_num);
+									  List *masters, const char *mastername, int line_num);
 static ArrayType *gethba_options(HbaLine *hba);
 static void fill_hba_line(Tuplestorestate *tuple_store, TupleDesc tupdesc,
 						  int lineno, HbaLine *hba, const char *err_msg);
@@ -1648,13 +1648,11 @@ parse_hba_line(TokenizedLine *tok_line, int elevel)
 
 
 static bool
-verify_option_list_length(List *options, const char *optionname,
-						  List *comparelist, const char *comparename,
-						  int line_num)
+verify_option_list_length(List *options, const char *optionname, List *masters, const char *mastername, int line_num)
 {
 	if (list_length(options) == 0 ||
 		list_length(options) == 1 ||
-		list_length(options) == list_length(comparelist))
+		list_length(options) == list_length(masters))
 		return true;
 
 	ereport(LOG,
@@ -1662,8 +1660,8 @@ verify_option_list_length(List *options, const char *optionname,
 			 errmsg("the number of %s (%d) must be 1 or the same as the number of %s (%d)",
 					optionname,
 					list_length(options),
-					comparename,
-					list_length(comparelist)
+					mastername,
+					list_length(masters)
 					),
 			 errcontext("line %d of configuration file \"%s\"",
 						line_num, HbaFileName)));

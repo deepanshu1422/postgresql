@@ -4013,8 +4013,7 @@ EncodeDateTime(struct pg_tm *tm, fsec_t fsec, bool print_tz, int tz, const char 
 
 			/*
 			 * Note: the uses of %.*s in this function would be risky if the
-			 * timezone names ever contain non-ASCII characters, since we are
-			 * not being careful to do encoding-aware clipping.  However, all
+			 * timezone names ever contain non-ASCII characters.  However, all
 			 * TZ abbreviations in the IANA database are plain ASCII.
 			 */
 			if (print_tz)

@@ -16,7 +16,6 @@
 
 #include <sys/file.h>
 #include <dirent.h>
-#include <fcntl.h>
 #include <math.h>
 #include <unistd.h>
 
@@ -739,6 +738,9 @@ pg_current_logfile(PG_FUNCTION_ARGS)
 	FILE	   *fd;
 	char		lbuffer[MAXPGPATH];
 	char	   *logfmt;
+	char	   *log_filepath;
+	char	   *log_format = lbuffer;
+	char	   *nlpos;
 
 	/* The log format parameter is optional */
 	if (PG_NARGS() == 0 || PG_ARGISNULL(0))
@@ -765,23 +767,16 @@ pg_current_logfile(PG_FUNCTION_ARGS)
 		PG_RETURN_NULL();
 	}
 
-#ifdef WIN32
-	/* syslogger.c writes CRLF line endings on Windows */
-	_setmode(_fileno(fd), _O_TEXT);
-#endif
-
 	/*
 	 * Read the file to gather current log filename(s) registered by the
 	 * syslogger.
 	 */
 	while (fgets(lbuffer, sizeof(lbuffer), fd) != NULL)
 	{
-		char	   *log_format;
-		char	   *log_filepath;
-		char	   *nlpos;
-
-		/* Extract log format and log file path from the line. */
-		log_format = lbuffer;
+		/*
+		 * Extract log format and log file path from the line; lbuffer ==
+		 * log_format, they share storage.
+		 */
 		log_filepath = strchr(lbuffer, ' ');
 		if (log_filepath == NULL)
 		{

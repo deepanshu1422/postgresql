@@ -579,7 +579,9 @@ GenerateTypeDependencies(HeapTuple typeTuple,
 		deleteSharedDependencyRecordsFor(TypeRelationId, typeObjectId, 0);
 	}
 
-	ObjectAddressSet(myself, TypeRelationId, typeObjectId);
+	myself.classId = TypeRelationId;
+	myself.objectId = typeObjectId;
+	myself.objectSubId = 0;
 
 	/*
 	 * Make dependencies on namespace, owner, ACL, extension.
@@ -589,8 +591,9 @@ GenerateTypeDependencies(HeapTuple typeTuple,
 	 */
 	if (!isDependentType)
 	{
-		ObjectAddressSet(referenced, NamespaceRelationId,
-						 typeForm->typnamespace);
+		referenced.classId = NamespaceRelationId;
+		referenced.objectId = typeForm->typnamespace;
+		referenced.objectSubId = 0;
 		recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
 
 		recordDependencyOnOwner(TypeRelationId, typeObjectId,
@@ -605,43 +608,57 @@ GenerateTypeDependencies(HeapTuple typeTuple,
 	/* Normal dependencies on the I/O functions */
 	if (OidIsValid(typeForm->typinput))
 	{
-		ObjectAddressSet(referenced, ProcedureRelationId, typeForm->typinput);
+		referenced.classId = ProcedureRelationId;
+		referenced.objectId = typeForm->typinput;
+		referenced.objectSubId = 0;
 		recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
 	}
 
 	if (OidIsValid(typeForm->typoutput))
 	{
-		ObjectAddressSet(referenced, ProcedureRelationId, typeForm->typoutput);
+		referenced.classId = ProcedureRelationId;
+		referenced.objectId = typeForm->typoutput;
+		referenced.objectSubId = 0;
 		recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
 	}
 
 	if (OidIsValid(typeForm->typreceive))
 	{
-		ObjectAddressSet(referenced, ProcedureRelationId, typeForm->typreceive);
+		referenced.classId = ProcedureRelationId;
+		referenced.objectId = typeForm->typreceive;
+		referenced.objectSubId = 0;
 		recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
 	}
 
 	if (OidIsValid(typeForm->typsend))
 	{
-		ObjectAddressSet(referenced, ProcedureRelationId, typeForm->typsend);
+		referenced.classId = ProcedureRelationId;
+		referenced.objectId = typeForm->typsend;
+		referenced.objectSubId = 0;
 		recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
 	}
 
 	if (OidIsValid(typeForm->typmodin))
 	{
-		ObjectAddressSet(referenced, ProcedureRelationId, typeForm->typmodin);
+		referenced.classId = ProcedureRelationId;
+		referenced.objectId = typeForm->typmodin;
+		referenced.objectSubId = 0;
 		recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
 	}
 
 	if (OidIsValid(typeForm->typmodout))
 	{
-		ObjectAddressSet(referenced, ProcedureRelationId, typeForm->typmodout);
+		referenced.classId = ProcedureRelationId;
+		referenced.objectId = typeForm->typmodout;
+		referenced.objectSubId = 0;
 		recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
 	}
 
 	if (OidIsValid(typeForm->typanalyze))
 	{
-		ObjectAddressSet(referenced, ProcedureRelationId, typeForm->typanalyze);
+		referenced.classId = ProcedureRelationId;
+		referenced.objectId = typeForm->typanalyze;
+		referenced.objectSubId = 0;
 		recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
 	}
 
@@ -656,7 +673,9 @@ GenerateTypeDependencies(HeapTuple typeTuple,
 	 */
 	if (OidIsValid(typeForm->typrelid))
 	{
-		ObjectAddressSet(referenced, RelationRelationId, typeForm->typrelid);
+		referenced.classId = RelationRelationId;
+		referenced.objectId = typeForm->typrelid;
+		referenced.objectSubId = 0;
 
 		if (relationKind != RELKIND_COMPOSITE_TYPE)
 			recordDependencyOn(&myself, &referenced, DEPENDENCY_INTERNAL);
@@ -671,7 +690,9 @@ GenerateTypeDependencies(HeapTuple typeTuple,
 	 */
 	if (OidIsValid(typeForm->typelem))
 	{
-		ObjectAddressSet(referenced, TypeRelationId, typeForm->typelem);
+		referenced.classId = TypeRelationId;
+		referenced.objectId = typeForm->typelem;
+		referenced.objectSubId = 0;
 		recordDependencyOn(&myself, &referenced,
 						   isImplicitArray ? DEPENDENCY_INTERNAL : DEPENDENCY_NORMAL);
 	}
@@ -679,7 +700,9 @@ GenerateTypeDependencies(HeapTuple typeTuple,
 	/* Normal dependency from a domain to its base type. */
 	if (OidIsValid(typeForm->typbasetype))
 	{
-		ObjectAddressSet(referenced, TypeRelationId, typeForm->typbasetype);
+		referenced.classId = TypeRelationId;
+		referenced.objectId = typeForm->typbasetype;
+		referenced.objectSubId = 0;
 		recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
 	}
 
@@ -688,7 +711,9 @@ GenerateTypeDependencies(HeapTuple typeTuple,
 	if (OidIsValid(typeForm->typcollation) &&
 		typeForm->typcollation != DEFAULT_COLLATION_OID)
 	{
-		ObjectAddressSet(referenced, CollationRelationId, typeForm->typcollation);
+		referenced.classId = CollationRelationId;
+		referenced.objectId = typeForm->typcollation;
+		referenced.objectSubId = 0;
 		recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
 	}
 

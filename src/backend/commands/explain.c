@@ -3059,19 +3059,24 @@ show_hashagg_info(AggState *aggstate, ExplainState *es)
 	if (es->format != EXPLAIN_FORMAT_TEXT)
 	{
 
-		if (es->costs)
+		if (es->costs && aggstate->hash_planned_partitions > 0)
+		{
 			ExplainPropertyInteger("Planned Partitions", NULL,
 								   aggstate->hash_planned_partitions, es);
+		}
 
 		if (!es->analyze)
 			return;
 
 		/* EXPLAIN ANALYZE */
-		ExplainPropertyInteger("HashAgg Batches", NULL,
-							   aggstate->hash_batches_used, es);
 		ExplainPropertyInteger("Peak Memory Usage", "kB", memPeakKb, es);
-		ExplainPropertyInteger("Disk Usage", "kB",
-							   aggstate->hash_disk_used, es);
+		if (aggstate->hash_batches_used > 0)
+		{
+			ExplainPropertyInteger("Disk Usage", "kB",
+								   aggstate->hash_disk_used, es);
+			ExplainPropertyInteger("HashAgg Batches", NULL,
+								   aggstate->hash_batches_used, es);
+		}
 	}
 	else
 	{
@@ -3097,13 +3102,13 @@ show_hashagg_info(AggState *aggstate, ExplainState *es)
 		else
 			appendStringInfoString(es->str, "  ");
 
-		appendStringInfo(es->str, "Batches: %d  Memory Usage: " INT64_FORMAT "kB",
-						 aggstate->hash_batches_used, memPeakKb);
+		appendStringInfo(es->str, "Peak Memory Usage: " INT64_FORMAT " kB",
+						 memPeakKb);
 
-		/* Only display disk usage if we spilled to disk */
-		if (aggstate->hash_batches_used > 1)
-			appendStringInfo(es->str, "  Disk Usage: " UINT64_FORMAT "kB",
-							 aggstate->hash_disk_used);
+		if (aggstate->hash_batches_used > 0)
+			appendStringInfo(es->str, "  Disk Usage: " UINT64_FORMAT " kB  HashAgg Batches: %d",
+							 aggstate->hash_disk_used,
+							 aggstate->hash_batches_used);
 		appendStringInfoChar(es->str, '\n');
 	}
 
@@ -3128,22 +3133,25 @@ show_hashagg_info(AggState *aggstate, ExplainState *es)
 			{
 				ExplainIndentText(es);
 
-				appendStringInfo(es->str, "Batches: %d  Memory Usage: " INT64_FORMAT "kB",
-								 hash_batches_used, memPeakKb);
+				appendStringInfo(es->str, "Peak Memory Usage: " INT64_FORMAT " kB",
+								 memPeakKb);
 
-				/* Only display disk usage if we spilled to disk */
-				if (hash_batches_used > 1)
-					appendStringInfo(es->str, "  Disk Usage: " UINT64_FORMAT "kB",
-									 hash_disk_used);
+				if (hash_batches_used > 0)
+					appendStringInfo(es->str, "  Disk Usage: " UINT64_FORMAT " kB  HashAgg Batches: %d",
+									 hash_disk_used, hash_batches_used);
 				appendStringInfoChar(es->str, '\n');
 			}
 			else
 			{
-				ExplainPropertyInteger("HashAgg Batches", NULL,
-									   hash_batches_used, es);
 				ExplainPropertyInteger("Peak Memory Usage", "kB", memPeakKb,
 									   es);
-				ExplainPropertyInteger("Disk Usage", "kB", hash_disk_used, es);
+				if (hash_batches_used > 0)
+				{
+					ExplainPropertyInteger("Disk Usage", "kB", hash_disk_used,
+										   es);
+					ExplainPropertyInteger("HashAgg Batches", NULL,
+										   hash_batches_used, es);
+				}
 			}
 
 			if (es->workers_state)

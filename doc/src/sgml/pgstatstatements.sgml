@@ -101,8 +101,6 @@
       </para>
       <para>
        Number of times the statement was planned
-       (if <varname>pg_stat_statements.track_planning</varname> is enabled,
-       otherwise zero)
       </para></entry>
      </row>
 
@@ -112,8 +110,6 @@
       </para>
       <para>
        Total time spent planning the statement, in milliseconds
-       (if <varname>pg_stat_statements.track_planning</varname> is enabled,
-       otherwise zero)
       </para></entry>
      </row>
 
@@ -123,8 +119,6 @@
       </para>
       <para>
        Minimum time spent planning the statement, in milliseconds
-       (if <varname>pg_stat_statements.track_planning</varname> is enabled,
-       otherwise zero)
       </para></entry>
      </row>
 
@@ -134,8 +128,6 @@
       </para>
       <para>
        Maximum time spent planning the statement, in milliseconds
-       (if <varname>pg_stat_statements.track_planning</varname> is enabled,
-       otherwise zero)
       </para></entry>
      </row>
 
@@ -145,8 +137,6 @@
       </para>
       <para>
        Mean time spent planning the statement, in milliseconds
-       (if <varname>pg_stat_statements.track_planning</varname> is enabled,
-       otherwise zero)
       </para></entry>
      </row>
 
@@ -155,10 +145,7 @@
        <structfield>stddev_plan_time</structfield> <type>double precision</type>
       </para>
       <para>
-       Population standard deviation of time spent planning the statement,
-       in milliseconds
-       (if <varname>pg_stat_statements.track_planning</varname> is enabled,
-       otherwise zero)
+       Population standard deviation of time spent planning the statement, in milliseconds
       </para></entry>
      </row>
 
@@ -607,10 +594,7 @@
      <para>
       <varname>pg_stat_statements.track_planning</varname> controls whether
       planning operations and duration are tracked by the module.
-      Enabling this parameter may incur a noticeable performance penalty,
-      especially when a fewer kinds of queries are executed on many
-      concurrent connections.
-      The default value is <literal>off</literal>.
+      The default value is <literal>on</literal>.
       Only superusers can change this setting.
      </para>
     </listitem>

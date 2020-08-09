@@ -286,7 +286,7 @@ StreamLogicalLog(void)
 		}
 
 		/*
-		 * Potentially send a status message to the primary.
+		 * Potentially send a status message to the master
 		 */
 		now = feGetCurrentTimestamp();
 

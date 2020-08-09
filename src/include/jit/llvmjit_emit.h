@@ -4,7 +4,7 @@
  *
  * Copyright (c) 2018-2020, PostgreSQL Global Development Group
  *
- * src/include/jit/llvmjit_emit.h
+ * src/include/lib/llvmjit_emit.h
  */
 #ifndef LLVMJIT_EMIT_H
 #define LLVMJIT_EMIT_H

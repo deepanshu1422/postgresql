@@ -227,8 +227,10 @@ SV_to_JsonbValue(SV *in, JsonbParseState **jsonb_state, bool is_elem)
 				/*
 				 * jsonb doesn't allow infinity or NaN (per JSON
 				 * specification), but the numeric type that is used for the
-				 * storage accepts those, so we have to reject them here
-				 * explicitly.
+				 * storage accepts NaN, so we have to prevent it here
+				 * explicitly.  We don't really have to check for isinf()
+				 * here, as numeric doesn't allow it and it would be caught
+				 * later, but it makes for a nicer error message.
 				 */
 				if (isinf(nval))
 					ereport(ERROR,

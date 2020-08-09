@@ -139,7 +139,7 @@ extern TupleHashTable BuildTupleHashTableExt(PlanState *parent,
 											 MemoryContext tempcxt, bool use_variable_hash_iv);
 extern TupleHashEntry LookupTupleHashEntry(TupleHashTable hashtable,
 										   TupleTableSlot *slot,
-										   bool *isnew, uint32 *hash);
+										   bool *isnew);
 extern uint32 TupleHashTableHash(TupleHashTable hashtable,
 								 TupleTableSlot *slot);
 extern TupleHashEntry LookupTupleHashEntryHash(TupleHashTable hashtable,
@@ -227,6 +227,9 @@ extern Node *MultiExecProcNode(PlanState *node);
 extern void ExecEndNode(PlanState *node);
 extern bool ExecShutdownNode(PlanState *node);
 extern void ExecSetTupleBound(int64 tuples_needed, PlanState *child_node);
+
+/* implemented in instrument.c */
+extern TupleTableSlot *ExecProcNodeInstr(PlanState *node);
 
 
 /* ----------------------------------------------------------------

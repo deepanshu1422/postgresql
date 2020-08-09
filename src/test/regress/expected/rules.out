@@ -1428,10 +1428,8 @@ pg_prepared_statements| SELECT p.name,
     p.statement,
     p.prepare_time,
     p.parameter_types,
-    p.from_sql,
-    p.generic_plans,
-    p.custom_plans
-   FROM pg_prepared_statement() p(name, statement, prepare_time, parameter_types, from_sql, generic_plans, custom_plans);
+    p.from_sql
+   FROM pg_prepared_statement() p(name, statement, prepare_time, parameter_types, from_sql);
 pg_prepared_xacts| SELECT p.transaction,
     p.gid,
     p.prepared,
@@ -1466,8 +1464,8 @@ pg_replication_slots| SELECT l.slot_name,
     l.restart_lsn,
     l.confirmed_flush_lsn,
     l.wal_status,
-    l.safe_wal_size
-   FROM (pg_get_replication_slots() l(slot_name, plugin, slot_type, datoid, temporary, active, active_pid, xmin, catalog_xmin, restart_lsn, confirmed_flush_lsn, wal_status, safe_wal_size)
+    l.min_safe_lsn
+   FROM (pg_get_replication_slots() l(slot_name, plugin, slot_type, datoid, temporary, active, active_pid, xmin, catalog_xmin, restart_lsn, confirmed_flush_lsn, wal_status, min_safe_lsn)
      LEFT JOIN pg_database d ON ((l.datoid = d.oid)));
 pg_roles| SELECT pg_authid.rolname,
     pg_authid.rolsuper,
@@ -1755,6 +1753,28 @@ pg_stat_activity| SELECT s.datid,
    FROM ((pg_stat_get_activity(NULL::integer) s(datid, pid, usesysid, application_name, state, query, wait_event_type, wait_event, xact_start, query_start, backend_start, state_change, client_addr, client_hostname, client_port, backend_xid, backend_xmin, backend_type, ssl, sslversion, sslcipher, sslbits, sslcompression, ssl_client_dn, ssl_client_serial, ssl_issuer_dn, gss_auth, gss_princ, gss_enc, leader_pid)
      LEFT JOIN pg_database d ON ((s.datid = d.oid)))
      LEFT JOIN pg_authid u ON ((s.usesysid = u.oid)));
+pg_stat_aio_backends| SELECT s.pid,
+    s.executed_total_count,
+    s.issued_total_count,
+    s.submissions_total_count,
+    s.foreign_completed_total_count,
+    s.retry_total_count,
+    s.inflight_count,
+    s.unused_count,
+    s.outstanding_count,
+    s.pending_count,
+    s.local_completed_count,
+    s.foreign_completed_count
+   FROM pg_stat_get_aio_backends() s(pid, executed_total_count, issued_total_count, submissions_total_count, foreign_completed_total_count, retry_total_count, inflight_count, unused_count, outstanding_count, pending_count, local_completed_count, foreign_completed_count);
+pg_stat_aios| SELECT s.id,
+    s.operation,
+    s.flags,
+    s.ring,
+    s.owner_pid,
+    s.generation,
+    s.result,
+    s.action_desc
+   FROM pg_stat_get_aios() s(id, operation, flags, ring, owner_pid, generation, result, action_desc);
 pg_stat_all_indexes| SELECT c.oid AS relid,
     i.oid AS indexrelid,
     n.nspname AS schemaname,
@@ -2004,9 +2024,12 @@ pg_stat_replication| SELECT s.pid,
     w.replay_lag,
     w.sync_priority,
     w.sync_state,
-    w.reply_time
+    w.reply_time,
+    w.spill_txns,
+    w.spill_count,
+    w.spill_bytes
    FROM ((pg_stat_get_activity(NULL::integer) s(datid, pid, usesysid, application_name, state, query, wait_event_type, wait_event, xact_start, query_start, backend_start, state_change, client_addr, client_hostname, client_port, backend_xid, backend_xmin, backend_type, ssl, sslversion, sslcipher, sslbits, sslcompression, ssl_client_dn, ssl_client_serial, ssl_issuer_dn, gss_auth, gss_princ, gss_enc, leader_pid)
-     JOIN pg_stat_get_wal_senders() w(pid, state, sent_lsn, write_lsn, flush_lsn, replay_lsn, write_lag, flush_lag, replay_lag, sync_priority, sync_state, reply_time) ON ((s.pid = w.pid)))
+     JOIN pg_stat_get_wal_senders() w(pid, state, sent_lsn, write_lsn, flush_lsn, replay_lsn, write_lag, flush_lag, replay_lag, sync_priority, sync_state, reply_time, spill_txns, spill_count, spill_bytes) ON ((s.pid = w.pid)))
      LEFT JOIN pg_authid u ON ((s.usesysid = u.oid)));
 pg_stat_slru| SELECT s.name,
     s.blks_zeroed,

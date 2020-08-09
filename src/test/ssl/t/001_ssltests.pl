@@ -52,16 +52,14 @@ foreach my $key (@keys)
 
 # Also make a copy of that explicitly world-readable.  We can't
 # necessarily rely on the file in the source tree having those
-# permissions.  Add it to @keys to include it in the final clean
-# up phase.
+# permissions.
 copy("ssl/client.key", "ssl/client_wrongperms_tmp.key");
 chmod 0644, "ssl/client_wrongperms_tmp.key";
-push @keys, 'client_wrongperms';
 
 #### Set up the server.
 
 note "setting up data directory";
-my $node = get_new_node('primary');
+my $node = get_new_node('master');
 $node->init;
 
 # PGHOST is enforced here to set up the node, subsequent connections

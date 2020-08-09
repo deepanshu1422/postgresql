@@ -65,7 +65,6 @@ GetSubscription(Oid subid, bool missing_ok)
 	sub->name = pstrdup(NameStr(subform->subname));
 	sub->owner = subform->subowner;
 	sub->enabled = subform->subenabled;
-	sub->binary = subform->subbinary;
 
 	/* Get conninfo */
 	datum = SysCacheGetAttr(SUBSCRIPTIONOID,
@@ -452,20 +451,13 @@ GetSubscriptionRelations(Oid subid)
 	{
 		Form_pg_subscription_rel subrel;
 		SubscriptionRelState *relstate;
-		Datum		d;
-		bool		isnull;
 
 		subrel = (Form_pg_subscription_rel) GETSTRUCT(tup);
 
 		relstate = (SubscriptionRelState *) palloc(sizeof(SubscriptionRelState));
 		relstate->relid = subrel->srrelid;
 		relstate->state = subrel->srsubstate;
-		d = SysCacheGetAttr(SUBSCRIPTIONRELMAP, tup,
-							Anum_pg_subscription_rel_srsublsn, &isnull);
-		if (isnull)
-			relstate->lsn = InvalidXLogRecPtr;
-		else
-			relstate->lsn = DatumGetLSN(d);
+		relstate->lsn = subrel->srsublsn;
 
 		res = lappend(res, relstate);
 	}
@@ -511,20 +503,13 @@ GetSubscriptionNotReadyRelations(Oid subid)
 	{
 		Form_pg_subscription_rel subrel;
 		SubscriptionRelState *relstate;
-		Datum		d;
-		bool		isnull;
 
 		subrel = (Form_pg_subscription_rel) GETSTRUCT(tup);
 
 		relstate = (SubscriptionRelState *) palloc(sizeof(SubscriptionRelState));
 		relstate->relid = subrel->srrelid;
 		relstate->state = subrel->srsubstate;
-		d = SysCacheGetAttr(SUBSCRIPTIONRELMAP, tup,
-							Anum_pg_subscription_rel_srsublsn, &isnull);
-		if (isnull)
-			relstate->lsn = InvalidXLogRecPtr;
-		else
-			relstate->lsn = DatumGetLSN(d);
+		relstate->lsn = subrel->srsublsn;
 
 		res = lappend(res, relstate);
 	}

@@ -807,7 +807,7 @@ _Clone(ArchiveHandle *AH)
 	 */
 
 	/*
-	 * We also don't copy the ParallelState pointer (pstate), only the leader
+	 * We also don't copy the ParallelState pointer (pstate), only the master
 	 * process ever writes to it.
 	 */
 }

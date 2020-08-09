@@ -4,7 +4,7 @@
  *
  * Copyright (c) 1996-2020, PostgreSQL Global Development Group
  *
- * src/include/partitioning/partdesc.h
+ * src/include/utils/partdesc.h
  *
  *-------------------------------------------------------------------------
  */

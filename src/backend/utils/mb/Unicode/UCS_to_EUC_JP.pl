@@ -80,8 +80,7 @@ foreach my $i (@$ct932)
 	}
 }
 
-# extract only SJIS characers
-foreach my $i (grep defined $_->{sjis}, @mapping)
+foreach my $i (@mapping)
 {
 	my $sjis = $i->{sjis};
 

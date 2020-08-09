@@ -164,7 +164,7 @@ btbuildempty(Relation index)
 	Page		metapage;
 
 	/* Construct metapage. */
-	metapage = (Page) palloc(BLCKSZ);
+	metapage = (Page) palloc_io_aligned(BLCKSZ, 0);
 	_bt_initmetapage(metapage, P_NONE, 0, _bt_allequalimage(index, false));
 
 	/*
@@ -1115,7 +1115,7 @@ backtrack:
 	 */
 	buf = ReadBufferExtended(rel, MAIN_FORKNUM, blkno, RBM_NORMAL,
 							 info->strategy);
-	_bt_lockbuf(rel, buf, BT_READ);
+	LockBuffer(buf, BT_READ);
 	page = BufferGetPage(buf);
 	opaque = NULL;
 	if (!PageIsNew(page))
@@ -1222,7 +1222,8 @@ backtrack:
 		 * course of the vacuum scan, whether or not it actually contains any
 		 * deletable tuples --- see nbtree/README.
 		 */
-		_bt_upgradelockbufcleanup(rel, buf);
+		LockBuffer(buf, BUFFER_LOCK_UNLOCK);
+		LockBufferForCleanup(buf);
 
 		/*
 		 * Check whether we need to backtrack to earlier pages.  What we are

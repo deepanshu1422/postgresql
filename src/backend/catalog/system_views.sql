@@ -785,7 +785,10 @@ CREATE VIEW pg_stat_replication AS
             W.replay_lag,
             W.sync_priority,
             W.sync_state,
-            W.reply_time
+            W.reply_time,
+            W.spill_txns,
+            W.spill_count,
+            W.spill_bytes
     FROM pg_stat_get_activity(NULL) AS S
         JOIN pg_stat_get_wal_senders() AS W ON (S.pid = W.pid)
         LEFT JOIN pg_authid AS U ON (S.usesysid = U.oid);
@@ -876,7 +879,7 @@ CREATE VIEW pg_replication_slots AS
             L.restart_lsn,
             L.confirmed_flush_lsn,
             L.wal_status,
-            L.safe_wal_size
+            L.min_safe_lsn
     FROM pg_get_replication_slots() AS L
             LEFT JOIN pg_database D ON (L.datoid = D.oid);
 
@@ -972,6 +975,16 @@ CREATE VIEW pg_stat_bgwriter AS
         pg_stat_get_buf_fsync_backend() AS buffers_backend_fsync,
         pg_stat_get_buf_alloc() AS buffers_alloc,
         pg_stat_get_bgwriter_stat_reset_time() AS stats_reset;
+
+CREATE VIEW pg_stat_aio_backends AS
+    /* FIXME: easier to maintain without column names during development */
+    SELECT s.*
+    FROM pg_stat_get_aio_backends() s;
+
+CREATE VIEW pg_stat_aios AS
+    /* FIXME: easier to maintain without column names during development */
+    SELECT s.*
+    FROM pg_stat_get_aios() s;
 
 CREATE VIEW pg_stat_progress_analyze AS
     SELECT
@@ -1084,10 +1097,10 @@ CREATE VIEW pg_stat_progress_basebackup AS
                       WHEN 4 THEN 'waiting for wal archiving to finish'
                       WHEN 5 THEN 'transferring wal files'
                       END AS phase,
-        CASE S.param2 WHEN -1 THEN NULL ELSE S.param2 END AS backup_total,
-        S.param3 AS backup_streamed,
-        S.param4 AS tablespaces_total,
-        S.param5 AS tablespaces_streamed
+	CASE S.param2 WHEN -1 THEN NULL ELSE S.param2 END AS backup_total,
+	S.param3 AS backup_streamed,
+	S.param4 AS tablespaces_total,
+	S.param5 AS tablespaces_streamed
     FROM pg_stat_get_progress_info('BASEBACKUP') AS S;
 
 CREATE VIEW pg_user_mappings AS
@@ -1122,7 +1135,7 @@ REVOKE ALL ON pg_replication_origin_status FROM public;
 
 -- All columns of pg_subscription except subconninfo are readable.
 REVOKE ALL ON pg_subscription FROM public;
-GRANT SELECT (subdbid, subname, subowner, subenabled, subbinary, subslotname, subpublications)
+GRANT SELECT (subdbid, subname, subowner, subenabled, subslotname, subpublications)
     ON pg_subscription TO public;
 
 

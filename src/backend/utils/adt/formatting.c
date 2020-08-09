@@ -6129,12 +6129,9 @@ numeric_to_char(PG_FUNCTION_ARGS)
 		/*
 		 * numeric_out_sci() does not emit a sign for positive numbers.  We
 		 * need to add a space in this case so that positive and negative
-		 * numbers are aligned.  Also must check for NaN/infinity cases, which
-		 * we handle the same way as in float8_to_char.
+		 * numbers are aligned.  We also have to do the right thing for NaN.
 		 */
-		if (strcmp(orgnum, "NaN") == 0 ||
-			strcmp(orgnum, "Infinity") == 0 ||
-			strcmp(orgnum, "-Infinity") == 0)
+		if (strcmp(orgnum, "NaN") == 0)
 		{
 			/*
 			 * Allow 6 characters for the leading sign, the decimal point,
@@ -6349,7 +6346,7 @@ int8_to_char(PG_FUNCTION_ARGS)
 		/*
 		 * numeric_out_sci() does not emit a sign for positive numbers.  We
 		 * need to add a space in this case so that positive and negative
-		 * numbers are aligned.  We don't have to worry about NaN/inf here.
+		 * numbers are aligned.  We don't have to worry about NaN here.
 		 */
 		if (*orgnum != '-')
 		{

@@ -17,6 +17,7 @@
 #include "catalog/pg_type.h"
 #include "libpq/pqformat.h"
 #include "replication/logicalproto.h"
+#include "utils/builtins.h"
 #include "utils/lsyscache.h"
 #include "utils/syscache.h"
 
@@ -30,7 +31,7 @@
 
 static void logicalrep_write_attrs(StringInfo out, Relation rel);
 static void logicalrep_write_tuple(StringInfo out, Relation rel,
-								   HeapTuple tuple, bool binary);
+								   HeapTuple tuple);
 
 static void logicalrep_read_attrs(StringInfo in, LogicalRepRelation *rel);
 static void logicalrep_read_tuple(StringInfo in, LogicalRepTupleData *tuple);
@@ -138,7 +139,7 @@ logicalrep_read_origin(StringInfo in, XLogRecPtr *origin_lsn)
  * Write INSERT to the output stream.
  */
 void
-logicalrep_write_insert(StringInfo out, Relation rel, HeapTuple newtuple, bool binary)
+logicalrep_write_insert(StringInfo out, Relation rel, HeapTuple newtuple)
 {
 	pq_sendbyte(out, 'I');		/* action INSERT */
 
@@ -146,7 +147,7 @@ logicalrep_write_insert(StringInfo out, Relation rel, HeapTuple newtuple, bool b
 	pq_sendint32(out, RelationGetRelid(rel));
 
 	pq_sendbyte(out, 'N');		/* new tuple follows */
-	logicalrep_write_tuple(out, rel, newtuple, binary);
+	logicalrep_write_tuple(out, rel, newtuple);
 }
 
 /*
@@ -178,7 +179,7 @@ logicalrep_read_insert(StringInfo in, LogicalRepTupleData *newtup)
  */
 void
 logicalrep_write_update(StringInfo out, Relation rel, HeapTuple oldtuple,
-						HeapTuple newtuple, bool binary)
+						HeapTuple newtuple)
 {
 	pq_sendbyte(out, 'U');		/* action UPDATE */
 
@@ -195,11 +196,11 @@ logicalrep_write_update(StringInfo out, Relation rel, HeapTuple oldtuple,
 			pq_sendbyte(out, 'O');	/* old tuple follows */
 		else
 			pq_sendbyte(out, 'K');	/* old key follows */
-		logicalrep_write_tuple(out, rel, oldtuple, binary);
+		logicalrep_write_tuple(out, rel, oldtuple);
 	}
 
 	pq_sendbyte(out, 'N');		/* new tuple follows */
-	logicalrep_write_tuple(out, rel, newtuple, binary);
+	logicalrep_write_tuple(out, rel, newtuple);
 }
 
 /*
@@ -247,7 +248,7 @@ logicalrep_read_update(StringInfo in, bool *has_oldtuple,
  * Write DELETE to the output stream.
  */
 void
-logicalrep_write_delete(StringInfo out, Relation rel, HeapTuple oldtuple, bool binary)
+logicalrep_write_delete(StringInfo out, Relation rel, HeapTuple oldtuple)
 {
 	Assert(rel->rd_rel->relreplident == REPLICA_IDENTITY_DEFAULT ||
 		   rel->rd_rel->relreplident == REPLICA_IDENTITY_FULL ||
@@ -263,7 +264,7 @@ logicalrep_write_delete(StringInfo out, Relation rel, HeapTuple oldtuple, bool b
 	else
 		pq_sendbyte(out, 'K');	/* old key follows */
 
-	logicalrep_write_tuple(out, rel, oldtuple, binary);
+	logicalrep_write_tuple(out, rel, oldtuple);
 }
 
 /*
@@ -436,7 +437,7 @@ logicalrep_read_typ(StringInfo in, LogicalRepTyp *ltyp)
  * Write a tuple to the outputstream, in the most efficient format possible.
  */
 static void
-logicalrep_write_tuple(StringInfo out, Relation rel, HeapTuple tuple, bool binary)
+logicalrep_write_tuple(StringInfo out, Relation rel, HeapTuple tuple)
 {
 	TupleDesc	desc;
 	Datum		values[MaxTupleAttributeNumber];
@@ -473,18 +474,12 @@ logicalrep_write_tuple(StringInfo out, Relation rel, HeapTuple tuple, bool binar
 
 		if (isnull[i])
 		{
-			pq_sendbyte(out, LOGICALREP_COLUMN_NULL);
+			pq_sendbyte(out, 'n');	/* null column */
 			continue;
 		}
-
-		if (att->attlen == -1 && VARATT_IS_EXTERNAL_ONDISK(values[i]))
+		else if (att->attlen == -1 && VARATT_IS_EXTERNAL_ONDISK(values[i]))
 		{
-			/*
-			 * Unchanged toasted datum.  (Note that we don't promise to detect
-			 * unchanged data in general; this is just a cheap check to avoid
-			 * sending large values unnecessarily.)
-			 */
-			pq_sendbyte(out, LOGICALREP_COLUMN_UNCHANGED);
+			pq_sendbyte(out, 'u');	/* unchanged toast column */
 			continue;
 		}
 
@@ -493,35 +488,20 @@ logicalrep_write_tuple(StringInfo out, Relation rel, HeapTuple tuple, bool binar
 			elog(ERROR, "cache lookup failed for type %u", att->atttypid);
 		typclass = (Form_pg_type) GETSTRUCT(typtup);
 
-		/*
-		 * Send in binary if requested and type has suitable send function.
-		 */
-		if (binary && OidIsValid(typclass->typsend))
-		{
-			bytea	   *outputbytes;
-			int			len;
+		pq_sendbyte(out, 't');	/* 'text' data follows */
 
-			pq_sendbyte(out, LOGICALREP_COLUMN_BINARY);
-			outputbytes = OidSendFunctionCall(typclass->typsend, values[i]);
-			len = VARSIZE(outputbytes) - VARHDRSZ;
-			pq_sendint(out, len, 4);	/* length */
-			pq_sendbytes(out, VARDATA(outputbytes), len);	/* data */
-			pfree(outputbytes);
-		}
-		else
-		{
-			pq_sendbyte(out, LOGICALREP_COLUMN_TEXT);
-			outputstr = OidOutputFunctionCall(typclass->typoutput, values[i]);
-			pq_sendcountedtext(out, outputstr, strlen(outputstr), false);
-			pfree(outputstr);
-		}
+		outputstr = OidOutputFunctionCall(typclass->typoutput, values[i]);
+		pq_sendcountedtext(out, outputstr, strlen(outputstr), false);
+		pfree(outputstr);
 
 		ReleaseSysCache(typtup);
 	}
 }
 
 /*
- * Read tuple in logical replication format from stream.
+ * Read tuple in remote format from stream.
+ *
+ * The returned tuple points into the input stringinfo.
  */
 static void
 logicalrep_read_tuple(StringInfo in, LogicalRepTupleData *tuple)
@@ -532,53 +512,38 @@ logicalrep_read_tuple(StringInfo in, LogicalRepTupleData *tuple)
 	/* Get number of attributes */
 	natts = pq_getmsgint(in, 2);
 
-	/* Allocate space for per-column values; zero out unused StringInfoDatas */
-	tuple->colvalues = (StringInfoData *) palloc0(natts * sizeof(StringInfoData));
-	tuple->colstatus = (char *) palloc(natts * sizeof(char));
-	tuple->ncols = natts;
+	memset(tuple->changed, 0, sizeof(tuple->changed));
 
 	/* Read the data */
 	for (i = 0; i < natts; i++)
 	{
 		char		kind;
-		int			len;
-		StringInfo	value = &tuple->colvalues[i];
 
 		kind = pq_getmsgbyte(in);
-		tuple->colstatus[i] = kind;
 
 		switch (kind)
 		{
-			case LOGICALREP_COLUMN_NULL:
-				/* nothing more to do */
+			case 'n':			/* null */
+				tuple->values[i] = NULL;
+				tuple->changed[i] = true;
 				break;
-			case LOGICALREP_COLUMN_UNCHANGED:
+			case 'u':			/* unchanged column */
 				/* we don't receive the value of an unchanged column */
+				tuple->values[i] = NULL;
 				break;
-			case LOGICALREP_COLUMN_TEXT:
-				len = pq_getmsgint(in, 4);	/* read length */
+			case 't':			/* text formatted value */
+				{
+					int			len;
 
-				/* and data */
-				value->data = palloc(len + 1);
-				pq_copymsgbytes(in, value->data, len);
-				value->data[len] = '\0';
-				/* make StringInfo fully valid */
-				value->len = len;
-				value->cursor = 0;
-				value->maxlen = len;
-				break;
-			case LOGICALREP_COLUMN_BINARY:
-				len = pq_getmsgint(in, 4);	/* read length */
+					tuple->changed[i] = true;
 
-				/* and data */
-				value->data = palloc(len + 1);
-				pq_copymsgbytes(in, value->data, len);
-				/* not strictly necessary but per StringInfo practice */
-				value->data[len] = '\0';
-				/* make StringInfo fully valid */
-				value->len = len;
-				value->cursor = 0;
-				value->maxlen = len;
+					len = pq_getmsgint(in, 4);	/* read length */
+
+					/* and data */
+					tuple->values[i] = palloc(len + 1);
+					pq_copymsgbytes(in, tuple->values[i], len);
+					tuple->values[i][len] = '\0';
+				}
 				break;
 			default:
 				elog(ERROR, "unrecognized data representation type '%c'", kind);
@@ -587,7 +552,7 @@ logicalrep_read_tuple(StringInfo in, LogicalRepTupleData *tuple)
 }
 
 /*
- * Write relation attribute metadata to the stream.
+ * Write relation attributes to the stream.
  */
 static void
 logicalrep_write_attrs(StringInfo out, Relation rel)
@@ -646,7 +611,7 @@ logicalrep_write_attrs(StringInfo out, Relation rel)
 }
 
 /*
- * Read relation attribute metadata from the stream.
+ * Read relation attribute names from the stream.
  */
 static void
 logicalrep_read_attrs(StringInfo in, LogicalRepRelation *rel)

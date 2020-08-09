@@ -595,12 +595,12 @@ buildSubPlanHash(SubPlanState *node, ExprContext *econtext)
 		 */
 		if (slotNoNulls(slot))
 		{
-			(void) LookupTupleHashEntry(node->hashtable, slot, &isnew, NULL);
+			(void) LookupTupleHashEntry(node->hashtable, slot, &isnew);
 			node->havehashrows = true;
 		}
 		else if (node->hashnulls)
 		{
-			(void) LookupTupleHashEntry(node->hashnulls, slot, &isnew, NULL);
+			(void) LookupTupleHashEntry(node->hashnulls, slot, &isnew);
 			node->havenullrows = true;
 		}
 

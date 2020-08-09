@@ -61,6 +61,4 @@ extern void CacheRegisterRelcacheCallback(RelcacheCallbackFunction func,
 extern void CallSyscacheCallbacks(int cacheid, uint32 hashvalue);
 
 extern void InvalidateSystemCaches(void);
-
-extern void LogLogicalInvalidations(void);
 #endif							/* INVAL_H */

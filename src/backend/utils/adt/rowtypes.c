@@ -551,33 +551,13 @@ record_recv(PG_FUNCTION_ARGS)
 			continue;
 		}
 
-		/* Check column type recorded in the data */
+		/* Verify column datatype */
 		coltypoid = pq_getmsgint(buf, sizeof(Oid));
-
-		/*
-		 * From a security standpoint, it doesn't matter whether the input's
-		 * column type matches what we expect: the column type's receive
-		 * function has to be robust enough to cope with invalid data.
-		 * However, from a user-friendliness standpoint, it's nicer to
-		 * complain about type mismatches than to throw "improper binary
-		 * format" errors.  But there's a problem: only built-in types have
-		 * OIDs that are stable enough to believe that a mismatch is a real
-		 * issue.  So complain only if both OIDs are in the built-in range.
-		 * Otherwise, carry on with the column type we "should" be getting.
-		 */
-		if (coltypoid != column_type &&
-			coltypoid < FirstGenbkiObjectId &&
-			column_type < FirstGenbkiObjectId)
+		if (coltypoid != column_type)
 			ereport(ERROR,
 					(errcode(ERRCODE_DATATYPE_MISMATCH),
-					 errmsg("binary data has type %u (%s) instead of expected %u (%s) in record column %d",
-							coltypoid,
-							format_type_extended(coltypoid, -1,
-												 FORMAT_TYPE_ALLOW_INVALID),
-							column_type,
-							format_type_extended(column_type, -1,
-												 FORMAT_TYPE_ALLOW_INVALID),
-							i + 1)));
+					 errmsg("wrong data type: %u, expected %u",
+							coltypoid, column_type)));
 
 		/* Get and check the item length */
 		itemlen = pq_getmsgint(buf, 4);

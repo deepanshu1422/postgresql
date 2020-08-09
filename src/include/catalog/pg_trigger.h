@@ -54,8 +54,7 @@ CATALOG(pg_trigger,2620,TriggerRelationId)
 	 * Variable-length fields start here, but we allow direct access to
 	 * tgattr. Note: tgattr and tgargs must not be null.
 	 */
-	int2vector	tgattr BKI_FORCE_NOT_NULL;	/* column numbers, if trigger is
-											 * on columns */
+	int2vector	tgattr;			/* column numbers, if trigger is on columns */
 
 #ifdef CATALOG_VARLEN
 	bytea		tgargs BKI_FORCE_NOT_NULL;	/* first\000second\000tgnargs\000 */

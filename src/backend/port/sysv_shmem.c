@@ -32,7 +32,6 @@
 #endif
 
 #include "miscadmin.h"
-#include "port/pg_bitutils.h"
 #include "portability/mem.h"
 #include "storage/dsm.h"
 #include "storage/fd.h"
@@ -449,7 +448,7 @@ PGSharedMemoryAttach(IpcMemoryId shmId,
 #ifdef MAP_HUGETLB
 
 /*
- * Identify the huge page size to use, and compute the related mmap flags.
+ * Identify the huge page size to use.
  *
  * Some Linux kernel versions have a bug causing mmap() to fail on requests
  * that are not a multiple of the hugepage size.  Versions without that bug
@@ -465,13 +464,25 @@ PGSharedMemoryAttach(IpcMemoryId shmId,
  * hugepage sizes, we might want to think about more invasive strategies,
  * such as increasing shared_buffers to absorb the extra space.
  *
- * Returns the (real, assumed or config provided) page size into *hugepagesize,
+ * Returns the (real or assumed) page size into *hugepagesize,
  * and the hugepage-related mmap flags to use into *mmap_flags.
+ *
+ * Currently *mmap_flags is always just MAP_HUGETLB.  Someday, on systems
+ * that support it, we might OR in additional bits to specify a particular
+ * non-default huge page size.
  */
 static void
 GetHugePageSize(Size *hugepagesize, int *mmap_flags)
 {
-	Size		default_hugepagesize = 0;
+	/*
+	 * If we fail to find out the system's default huge page size, assume it
+	 * is 2MB.  This will work fine when the actual size is less.  If it's
+	 * more, we might get mmap() or munmap() failures due to unaligned
+	 * requests; but at this writing, there are no reports of any non-Linux
+	 * systems being picky about that.
+	 */
+	*hugepagesize = 2 * 1024 * 1024;
+	*mmap_flags = MAP_HUGETLB;
 
 	/*
 	 * System-dependent code to find out the default huge page size.
@@ -480,7 +491,6 @@ GetHugePageSize(Size *hugepagesize, int *mmap_flags)
 	 * nnnn kB".  Ignore any failures, falling back to the preset default.
 	 */
 #ifdef __linux__
-
 	{
 		FILE	   *fp = AllocateFile("/proc/meminfo", "r");
 		char		buf[128];
@@ -495,7 +505,7 @@ GetHugePageSize(Size *hugepagesize, int *mmap_flags)
 				{
 					if (ch == 'k')
 					{
-						default_hugepagesize = sz * (Size) 1024;
+						*hugepagesize = sz * (Size) 1024;
 						break;
 					}
 					/* We could accept other units besides kB, if needed */
@@ -505,44 +515,6 @@ GetHugePageSize(Size *hugepagesize, int *mmap_flags)
 		}
 	}
 #endif							/* __linux__ */
-
-	if (huge_page_size != 0)
-	{
-		/* If huge page size is requested explicitly, use that. */
-		*hugepagesize = (Size) huge_page_size * 1024;
-	}
-	else if (default_hugepagesize != 0)
-	{
-		/* Otherwise use the system default, if we have it. */
-		*hugepagesize = default_hugepagesize;
-	}
-	else
-	{
-		/*
-		 * If we fail to find out the system's default huge page size, or no
-		 * huge page size is requested explicitly, assume it is 2MB. This will
-		 * work fine when the actual size is less.  If it's more, we might get
-		 * mmap() or munmap() failures due to unaligned requests; but at this
-		 * writing, there are no reports of any non-Linux systems being picky
-		 * about that.
-		 */
-		*hugepagesize = 2 * 1024 * 1024;
-	}
-
-	*mmap_flags = MAP_HUGETLB;
-
-	/*
-	 * On recent enough Linux, also include the explicit page size, if
-	 * necessary.
-	 */
-#if defined(MAP_HUGE_MASK) && defined(MAP_HUGE_SHIFT)
-	if (*hugepagesize != default_hugepagesize)
-	{
-		int			shift = pg_ceil_log2_64(*hugepagesize);
-
-		*mmap_flags |= (shift & MAP_HUGE_MASK) << MAP_HUGE_SHIFT;
-	}
-#endif
 }
 
 #endif							/* MAP_HUGETLB */
@@ -579,7 +551,7 @@ CreateAnonymousSegment(Size *size)
 			allocsize += hugepagesize - (allocsize % hugepagesize);
 
 		ptr = mmap(NULL, allocsize, PROT_READ | PROT_WRITE,
-				   PG_MMAP_FLAGS | mmap_flags, -1, 0);
+				   PG_MMAP_FLAGS | MAP_POPULATE | mmap_flags, -1, 0);
 		mmap_errno = errno;
 		if (huge_pages == HUGE_PAGES_TRY && ptr == MAP_FAILED)
 			elog(DEBUG1, "mmap(%zu) with MAP_HUGETLB failed, huge pages disabled: %m",
@@ -595,7 +567,7 @@ CreateAnonymousSegment(Size *size)
 		 */
 		allocsize = *size;
 		ptr = mmap(NULL, allocsize, PROT_READ | PROT_WRITE,
-				   PG_MMAP_FLAGS, -1, 0);
+				   PG_MMAP_FLAGS | MAP_POPULATE, -1, 0);
 		mmap_errno = errno;
 	}
 
@@ -611,7 +583,7 @@ CreateAnonymousSegment(Size *size)
 						 "(currently %zu bytes), reduce PostgreSQL's shared "
 						 "memory usage, perhaps by reducing shared_buffers or "
 						 "max_connections.",
-						 allocsize) : 0));
+						 *size) : 0));
 	}
 
 	*size = allocsize;

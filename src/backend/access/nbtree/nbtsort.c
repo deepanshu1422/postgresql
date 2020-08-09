@@ -267,7 +267,7 @@ static void _bt_build_callback(Relation index, ItemPointer tid, Datum *values,
 							   bool *isnull, bool tupleIsAlive, void *state);
 static Page _bt_blnewpage(uint32 level);
 static BTPageState *_bt_pagestate(BTWriteState *wstate, uint32 level);
-static void _bt_slideleft(Page rightmostpage);
+static void _bt_slideleft(Page page);
 static void _bt_sortaddtup(Page page, Size itemsize,
 						   IndexTuple itup, OffsetNumber itup_off,
 						   bool newfirstdataitem);
@@ -613,7 +613,7 @@ _bt_blnewpage(uint32 level)
 	Page		page;
 	BTPageOpaque opaque;
 
-	page = (Page) palloc(BLCKSZ);
+	page = (Page) palloc_io_aligned(BLCKSZ, 0);
 
 	/* Zero the page and set up standard page header info */
 	_bt_pageinit(page, BLCKSZ);
@@ -657,7 +657,9 @@ _bt_blwritepage(BTWriteState *wstate, Page page, BlockNumber blkno)
 	while (blkno > wstate->btws_pages_written)
 	{
 		if (!wstate->btws_zeropage)
-			wstate->btws_zeropage = (Page) palloc0(BLCKSZ);
+			wstate->btws_zeropage =
+				(Page) palloc_io_aligned(BLCKSZ, MCXT_ALLOC_ZERO);
+
 		/* don't set checksum for all-zero page */
 		smgrextend(wstate->index->rd_smgr, MAIN_FORKNUM,
 				   wstate->btws_pages_written++,
@@ -721,32 +723,31 @@ _bt_pagestate(BTWriteState *wstate, uint32 level)
 }
 
 /*
- * Slide the array of ItemIds from the page back one slot (from P_FIRSTKEY to
- * P_HIKEY, overwriting P_HIKEY).
- *
- * _bt_blnewpage() makes the P_HIKEY line pointer appear allocated, but the
- * rightmost page on its level is not supposed to get a high key.  Now that
- * it's clear that this page is a rightmost page, remove the unneeded empty
- * P_HIKEY line pointer space.
+ * slide an array of ItemIds back one slot (from P_FIRSTKEY to
+ * P_HIKEY, overwriting P_HIKEY).  we need to do this when we discover
+ * that we have built an ItemId array in what has turned out to be a
+ * P_RIGHTMOST page.
  */
 static void
-_bt_slideleft(Page rightmostpage)
+_bt_slideleft(Page page)
 {
 	OffsetNumber off;
 	OffsetNumber maxoff;
 	ItemId		previi;
+	ItemId		thisii;
 
-	maxoff = PageGetMaxOffsetNumber(rightmostpage);
-	Assert(maxoff >= P_FIRSTKEY);
-	previi = PageGetItemId(rightmostpage, P_HIKEY);
-	for (off = P_FIRSTKEY; off <= maxoff; off = OffsetNumberNext(off))
+	if (!PageIsEmpty(page))
 	{
-		ItemId		thisii = PageGetItemId(rightmostpage, off);
-
-		*previi = *thisii;
-		previi = thisii;
+		maxoff = PageGetMaxOffsetNumber(page);
+		previi = PageGetItemId(page, P_HIKEY);
+		for (off = P_FIRSTKEY; off <= maxoff; off = OffsetNumberNext(off))
+		{
+			thisii = PageGetItemId(page, off);
+			*previi = *thisii;
+			previi = thisii;
+		}
+		((PageHeader) page)->pd_lower -= sizeof(ItemIdData);
 	}
-	((PageHeader) rightmostpage)->pd_lower -= sizeof(ItemIdData);
 }
 
 /*
@@ -1167,7 +1168,7 @@ _bt_uppershutdown(BTWriteState *wstate, BTPageState *state)
 	 * set to point to "P_NONE").  This changes the index to the "valid" state
 	 * by filling in a valid magic number in the metapage.
 	 */
-	metapage = (Page) palloc(BLCKSZ);
+	metapage = (Page) palloc_io_aligned(BLCKSZ, 0);
 	_bt_initmetapage(metapage, rootblkno, rootlevel,
 					 wstate->inskey->allequalimage);
 	_bt_blwritepage(wstate, metapage, BTREE_METAPAGE);
@@ -1192,7 +1193,7 @@ _bt_load(BTWriteState *wstate, BTSpool *btspool, BTSpool *btspool2)
 	int64		tuples_done = 0;
 	bool		deduplicate;
 
-	deduplicate = wstate->inskey->allequalimage && !btspool->isunique &&
+	deduplicate = wstate->inskey->allequalimage &&
 		BTGetDeduplicateItems(wstate->index);
 
 	if (merge)

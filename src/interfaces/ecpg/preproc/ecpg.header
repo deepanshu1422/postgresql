@@ -289,8 +289,7 @@ adjust_outofscope_cursor_vars(struct cursor *cur)
 			else if ((ptr->variable->type->type != ECPGt_varchar
 					  && ptr->variable->type->type != ECPGt_char
 					  && ptr->variable->type->type != ECPGt_unsigned_char
-					  && ptr->variable->type->type != ECPGt_string
-					  && ptr->variable->type->type != ECPGt_bytea)
+					  && ptr->variable->type->type != ECPGt_string)
 					 && atoi(ptr->variable->type->size) > 1)
 			{
 				newvar = new_variable(cat_str(4, mm_strdup("("),
@@ -306,8 +305,7 @@ adjust_outofscope_cursor_vars(struct cursor *cur)
 			else if ((ptr->variable->type->type == ECPGt_varchar
 					  || ptr->variable->type->type == ECPGt_char
 					  || ptr->variable->type->type == ECPGt_unsigned_char
-					  || ptr->variable->type->type == ECPGt_string
-					  || ptr->variable->type->type == ECPGt_bytea)
+					  || ptr->variable->type->type == ECPGt_string)
 					 && atoi(ptr->variable->type->size) > 1)
 			{
 				newvar = new_variable(cat_str(4, mm_strdup("("),
@@ -318,8 +316,7 @@ adjust_outofscope_cursor_vars(struct cursor *cur)
 														   ptr->variable->type->size,
 														   ptr->variable->type->counter),
 									  0);
-				if (ptr->variable->type->type == ECPGt_varchar ||
-					ptr->variable->type->type == ECPGt_bytea)
+				if (ptr->variable->type->type == ECPGt_varchar)
 					var_ptr = true;
 			}
 			else if (ptr->variable->type->type == ECPGt_struct

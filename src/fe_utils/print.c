@@ -305,6 +305,20 @@ format_numeric_locale(const char *my_str)
 }
 
 
+/*
+ * fputnbytes: print exactly N bytes to a file
+ *
+ * We avoid using %.*s here because it can misbehave if the data
+ * is not valid in what libc thinks is the prevailing encoding.
+ */
+static void
+fputnbytes(FILE *f, const char *str, size_t n)
+{
+	while (n-- > 0)
+		fputc(*str++, f);
+}
+
+
 static void
 print_separator(struct separator sep, FILE *fout)
 {
@@ -1028,14 +1042,16 @@ print_aligned_text(const printTableContent *cont, FILE *fout, bool is_pager)
 					{
 						/* spaces first */
 						fprintf(fout, "%*s", width_wrap[j] - chars_to_output, "");
-						fwrite((char *) (this_line->ptr + bytes_output[j]),
-							   1, bytes_to_output, fout);
+						fputnbytes(fout,
+								   (char *) (this_line->ptr + bytes_output[j]),
+								   bytes_to_output);
 					}
 					else		/* Left aligned cell */
 					{
 						/* spaces second */
-						fwrite((char *) (this_line->ptr + bytes_output[j]),
-							   1, bytes_to_output, fout);
+						fputnbytes(fout,
+								   (char *) (this_line->ptr + bytes_output[j]),
+								   bytes_to_output);
 					}
 
 					bytes_output[j] += bytes_to_output;
@@ -1621,8 +1637,8 @@ print_aligned_vertical(const printTableContent *cont,
 				 */
 				bytes_to_output = strlen_max_width(dlineptr[dline].ptr + offset,
 												   &target_width, encoding);
-				fwrite((char *) (dlineptr[dline].ptr + offset),
-					   1, bytes_to_output, fout);
+				fputnbytes(fout, (char *) (dlineptr[dline].ptr + offset),
+						   bytes_to_output);
 
 				chars_to_output -= target_width;
 				offset += bytes_to_output;

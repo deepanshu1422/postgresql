@@ -506,10 +506,9 @@ RelationBuildTupleDesc(Relation relation)
 	AttrMissing *attrmiss = NULL;
 	int			ndef = 0;
 
-	/* fill rd_att's type ID fields (compare heap.c's AddNewRelationTuple) */
-	relation->rd_att->tdtypeid =
-		relation->rd_rel->reltype ? relation->rd_rel->reltype : RECORDOID;
-	relation->rd_att->tdtypmod = -1;	/* just to be sure */
+	/* copy some fields from pg_class row to rd_att */
+	relation->rd_att->tdtypeid = relation->rd_rel->reltype;
+	relation->rd_att->tdtypmod = -1;	/* unnecessary, but... */
 
 	constr = (TupleConstr *) MemoryContextAlloc(CacheMemoryContext,
 												sizeof(TupleConstr));
@@ -1887,7 +1886,7 @@ formrdesc(const char *relationName, Oid relationReltype,
 	relation->rd_att->tdrefcount = 1;	/* mark as refcounted */
 
 	relation->rd_att->tdtypeid = relationReltype;
-	relation->rd_att->tdtypmod = -1;	/* just to be sure */
+	relation->rd_att->tdtypmod = -1;	/* unnecessary, but... */
 
 	/*
 	 * initialize tuple desc info
@@ -5693,8 +5692,8 @@ load_relcache_init_file(bool shared)
 		rel->rd_att = CreateTemplateTupleDesc(relform->relnatts);
 		rel->rd_att->tdrefcount = 1;	/* mark as refcounted */
 
-		rel->rd_att->tdtypeid = relform->reltype ? relform->reltype : RECORDOID;
-		rel->rd_att->tdtypmod = -1; /* just to be sure */
+		rel->rd_att->tdtypeid = relform->reltype;
+		rel->rd_att->tdtypmod = -1; /* unnecessary, but... */
 
 		/* next read all the attribute tuple form data entries */
 		has_not_null = false;
