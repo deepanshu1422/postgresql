@@ -1,6 +1,6 @@
 /*-------------------------------------------------------------------------
  *
- *
+ * bgwriter.c
  *
  * The background writer (bgwriter) is new as of Postgres 8.0.  It attempts
  * to keep regular backends from having to write out dirty shared buffers
@@ -33,7 +33,7 @@
  *-------------------------------------------------------------------------
  */
 #include "postgres.h"
-
+#include <liburing.h>
 #include "access/xlog.h"
 #include "access/xlog_internal.h"
 #include "libpq/pqsignal.h"
@@ -57,10 +57,15 @@
 #include "utils/memutils.h"
 #include "utils/resowner.h"
 #include "utils/timestamp.h"
+#include  <liburing.h> //liburing file containg io_uring functions
+#include <unistd.h>
+#include <fcntl.h>
+#include <stdio.h>
 
- /*
-  * GUC parameters
-  */
+
+/*
+ * GUC parameters
+ */
 int			BgWriterDelay = 200;
 
 /*
@@ -69,17 +74,17 @@ int			BgWriterDelay = 200;
  */
 #define HIBERNATE_FACTOR			50
 
- /*
-  * Interval in which standby snapshots are logged into the WAL stream, in
-  * milliseconds.
-  */
+/*
+ * Interval in which standby snapshots are logged into the WAL stream, in
+ * milliseconds.
+ */
 #define LOG_SNAPSHOT_INTERVAL_MS 15000
 
-  /*
-   * LSN and timestamp at which we last issued a LogStandbySnapshot(), to avoid
-   * doing so too often or repeatedly if there has been no other write activity
-   * in the system.
-   */
+/*
+ * LSN and timestamp at which we last issued a LogStandbySnapshot(), to avoid
+ * doing so too often or repeatedly if there has been no other write activity
+ * in the system.
+ */
 static TimestampTz last_snapshot_ts;
 static XLogRecPtr last_snapshot_lsn = InvalidXLogRecPtr;
 
@@ -92,16 +97,25 @@ static XLogRecPtr last_snapshot_lsn = InvalidXLogRecPtr;
  */
 void
 BackgroundWriterMain(void)
-{
+{	
+	struct io_uring ring; //initialising io_uring ring
+	io_uring_queue_init(32, &ring, 0); //32 represents no. of entries  and last flag repreents any special operations
+	struct io_uring_sqe *sqe = io_uring_get_sqe(&ring);	 //getting SQE from io_uring
+
+	int fd = open(&ring, O_WRONLY | O_CREAT);
+
+
 	sigjmp_buf	local_sigjmp_buf;
 	MemoryContext bgwriter_context;
 	bool		prev_hibernate;
 	WritebackContext wb_context;
 
+	
 	/*
 	 * Properly accept or ignore signals that might be sent to us.
-	 */
-	pqsignal(SIGHUP, SignalHandlerForConfigReload);
+	 */struct iovec iov = {
+
+		 pqsignal(SIGHUP, SignalHandlerForConfigReload);
 	pqsignal(SIGINT, SIG_IGN);
 	pqsignal(SIGTERM, SignalHandlerForShutdownRequest);
 	pqsignal(SIGQUIT, SignalHandlerForCrashExit);
@@ -131,18 +145,28 @@ BackgroundWriterMain(void)
 	 * TopMemoryContext, but resetting that would be a really bad idea.
 	 */
 	bgwriter_context = AllocSetContextCreate(TopMemoryContext,
-		"Background Writer",
-		ALLOCSET_DEFAULT_SIZES);
+											 "Background Writer",
+											 ALLOCSET_DEFAULT_SIZES);
 	MemoryContextSwitchTo(bgwriter_context);
+		
+	};
+	
+	ret = io_uring_queue_init(ENTRIES, &ring, 0);
+	sqe = io_uring_get_sqe(&ring);
+	io_uring_prep_writev(sqe, fd, &iov, 1, 0);
+
+	/* tell the kernel we have an sqe ready for consumption */
+	ret = io_uring_submit(&ring);
+	if (ret < 0) {
+		printf("io_uring_submit: %s\n", strerror(-ret));
+		goto out;
 
 	WritebackContextInit(&wb_context, &bgwriter_flush_after);
 
-	/*
-	 * If an exception is encountered, processing resumes here.
-	 *
-	 * See notes in postgres.c about the design of this coding.
-	 */
-	if (sigsetjmp(local_sigjmp_buf, 1) != 0)
+	while (1) {
+		io_uring_peek_cqe(&ring, &cqe);
+		if (!cqe) {
+			(sigsetjmp(local_sigjmp_buf, 1) != 0)
 	{
 		/* Since not using PG_TRY, must reset error stack by hand */
 		error_context_stack = NULL;
@@ -274,7 +298,7 @@ BackgroundWriterMain(void)
 			TimestampTz now = GetCurrentTimestamp();
 
 			timeout = TimestampTzPlusMilliseconds(last_snapshot_ts,
-				LOG_SNAPSHOT_INTERVAL_MS);
+												  LOG_SNAPSHOT_INTERVAL_MS);
 
 			/*
 			 * Only log if enough time has passed and interesting records have
@@ -302,8 +326,8 @@ BackgroundWriterMain(void)
 		 * normal operation.
 		 */
 		rc = WaitLatch(MyLatch,
-			WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-			BgWriterDelay /* ms */, WAIT_EVENT_BGWRITER_MAIN);
+					   WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+					   BgWriterDelay /* ms */ , WAIT_EVENT_BGWRITER_MAIN);
 
 		/*
 		 * If no latch event and BgBufferSync says nothing's happening, extend
@@ -328,14 +352,30 @@ BackgroundWriterMain(void)
 			/* Ask for notification at next buffer allocation */
 			StrategyNotifyBgWriter(MyProc->pgprocno);
 			/* Sleep ... */
-			(void)WaitLatch(MyLatch,
-				WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-				BgWriterDelay * HIBERNATE_FACTOR,
-				WAIT_EVENT_BGWRITER_HIBERNATE);
+			(void) WaitLatch(MyLatch,
+							 WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+							 BgWriterDelay * HIBERNATE_FACTOR,
+							 WAIT_EVENT_BGWRITER_HIBERNATE);
 			/* Reset the notification request in case we timed out */
 			StrategyNotifyBgWriter(-1);
 		}
 
 		prev_hibernate = can_hibernate;
 	}
+		} else {
+			printf("Completed\n");
+			break;
+		}
+	}
+
+	/* read and process cqe event */
+	io_uring_cqe_seen(&ring, cqe);
+out:
+	close(fd);
+exit:
+	/* tear down */
+	io_uring_queue_exit(&ring);
+	return ret;
+}
+	/*
 }
